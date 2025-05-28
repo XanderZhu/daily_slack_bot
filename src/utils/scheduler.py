@@ -11,28 +11,37 @@ def setup_scheduler(app, agent_team):
     """Set up scheduled tasks for the Slack bot"""
     logger.info("Setting up scheduler for daily and hourly tasks")
     
+    # Create a wrapper function to run async functions in the event loop
+    def run_async_function(async_func, *args, **kwargs):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(async_func(*args, **kwargs))
+        finally:
+            loop.close()
+    
     # Schedule the daily welcome message (9 AM on weekdays)
-    schedule.every().monday.at("09:00").do(send_welcome_message, app=app, agent_team=agent_team)
-    schedule.every().tuesday.at("09:00").do(send_welcome_message, app=app, agent_team=agent_team)
-    schedule.every().wednesday.at("09:00").do(send_welcome_message, app=app, agent_team=agent_team)
-    schedule.every().thursday.at("09:00").do(send_welcome_message, app=app, agent_team=agent_team)
-    schedule.every().friday.at("09:00").do(send_welcome_message, app=app, agent_team=agent_team)
+    schedule.every().monday.at("09:00").do(run_async_function, send_welcome_message, app=app, agent_team=agent_team)
+    schedule.every().tuesday.at("09:00").do(run_async_function, send_welcome_message, app=app, agent_team=agent_team)
+    schedule.every().wednesday.at("09:00").do(run_async_function, send_welcome_message, app=app, agent_team=agent_team)
+    schedule.every().thursday.at("09:00").do(run_async_function, send_welcome_message, app=app, agent_team=agent_team)
+    schedule.every().friday.at("09:00").do(run_async_function, send_welcome_message, app=app, agent_team=agent_team)
     
     # Schedule hourly check-ins (on the hour, during work hours on weekdays)
     for hour in range(10, 18):  # 10 AM to 5 PM
-        schedule.every().monday.at(f"{hour:02d}:00").do(send_hourly_checkin, app=app, agent_team=agent_team)
-        schedule.every().tuesday.at(f"{hour:02d}:00").do(send_hourly_checkin, app=app, agent_team=agent_team)
-        schedule.every().wednesday.at(f"{hour:02d}:00").do(send_hourly_checkin, app=app, agent_team=agent_team)
-        schedule.every().thursday.at(f"{hour:02d}:00").do(send_hourly_checkin, app=app, agent_team=agent_team)
-        schedule.every().friday.at(f"{hour:02d}:00").do(send_hourly_checkin, app=app, agent_team=agent_team)
+        schedule.every().monday.at(f"{hour:02d}:00").do(run_async_function, send_hourly_checkin, app=app, agent_team=agent_team)
+        schedule.every().tuesday.at(f"{hour:02d}:00").do(run_async_function, send_hourly_checkin, app=app, agent_team=agent_team)
+        schedule.every().wednesday.at(f"{hour:02d}:00").do(run_async_function, send_hourly_checkin, app=app, agent_team=agent_team)
+        schedule.every().thursday.at(f"{hour:02d}:00").do(run_async_function, send_hourly_checkin, app=app, agent_team=agent_team)
+        schedule.every().friday.at(f"{hour:02d}:00").do(run_async_function, send_hourly_checkin, app=app, agent_team=agent_team)
     
     # Schedule activity checks (every 2 hours during work hours on weekdays)
     for hour in range(11, 18, 2):  # 11 AM, 1 PM, 3 PM, 5 PM
-        schedule.every().monday.at(f"{hour:02d}:00").do(check_activity, app=app, agent_team=agent_team)
-        schedule.every().tuesday.at(f"{hour:02d}:00").do(check_activity, app=app, agent_team=agent_team)
-        schedule.every().wednesday.at(f"{hour:02d}:00").do(check_activity, app=app, agent_team=agent_team)
-        schedule.every().thursday.at(f"{hour:02d}:00").do(check_activity, app=app, agent_team=agent_team)
-        schedule.every().friday.at(f"{hour:02d}:00").do(check_activity, app=app, agent_team=agent_team)
+        schedule.every().monday.at(f"{hour:02d}:00").do(run_async_function, check_activity, app=app, agent_team=agent_team)
+        schedule.every().tuesday.at(f"{hour:02d}:00").do(run_async_function, check_activity, app=app, agent_team=agent_team)
+        schedule.every().wednesday.at(f"{hour:02d}:00").do(run_async_function, check_activity, app=app, agent_team=agent_team)
+        schedule.every().thursday.at(f"{hour:02d}:00").do(run_async_function, check_activity, app=app, agent_team=agent_team)
+        schedule.every().friday.at(f"{hour:02d}:00").do(run_async_function, check_activity, app=app, agent_team=agent_team)
     
     # Start the scheduler in a background thread
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
@@ -46,13 +55,13 @@ def run_scheduler():
         schedule.run_pending()
         time.sleep(60)  # Check every minute
 
-def send_welcome_message(app, agent_team):
+async def send_welcome_message(app, agent_team):
     """Send the daily welcome message to all users"""
     logger.info("Sending daily welcome message")
     
     try:
         # Get all users who should receive the welcome message
-        users = get_active_users(app)
+        users = await get_active_users(app)
         
         # Get user manager from agent team components
         user_manager = agent_team.components.get('user_manager') if hasattr(agent_team, 'components') else None
@@ -68,11 +77,10 @@ def send_welcome_message(app, agent_team):
             
             if should_send:
                 # Generate the welcome message
-                # Run the async method in a new event loop
-                welcome_message = asyncio.run(agent_team.invoke(user_id, "", request_type="welcome"))
+                welcome_message = await agent_team.invoke(user_id, "", request_type="welcome")
                 
                 # Send the message
-                app.client.chat_postMessage(
+                await app.client.chat_postMessage(
                     channel=user_id,
                     text=welcome_message
                 )
@@ -81,13 +89,13 @@ def send_welcome_message(app, agent_team):
     except Exception as e:
         logger.error(f"Error sending welcome message: {e}")
 
-def send_hourly_checkin(app, agent_team):
+async def send_hourly_checkin(app, agent_team):
     """Send hourly check-in messages to all users"""
     logger.info("Sending hourly check-in messages")
     
     try:
         # Get all users who should receive the check-in
-        users = get_active_users(app)
+        users = await get_active_users(app)
         
         # Get user manager from agent team components
         user_manager = agent_team.components.get('user_manager') if hasattr(agent_team, 'components') else None
@@ -103,11 +111,10 @@ def send_hourly_checkin(app, agent_team):
             
             if should_send:
                 # Generate the check-in message
-                # Run the async method in a new event loop
-                checkin_message = asyncio.run(agent_team.invoke(user_id, "", request_type="checkin"))
+                checkin_message = await agent_team.invoke(user_id, "", request_type="checkin")
                 
                 # Send the message
-                app.client.chat_postMessage(
+                await app.client.chat_postMessage(
                     channel=user_id,
                     text=checkin_message
                 )
@@ -116,22 +123,21 @@ def send_hourly_checkin(app, agent_team):
     except Exception as e:
         logger.error(f"Error sending hourly check-in: {e}")
 
-def check_activity(app, agent_team):
+async def check_activity(app, agent_team):
     """Check user activity and send support messages if needed"""
     logger.info("Checking user activity")
     
     try:
         # Get all users to check activity for
-        users = get_active_users(app)
+        users = await get_active_users(app)
         
         for user_id in users:
             # Check user activity
-            # Run the async method in a new event loop
-            activity_message = asyncio.run(agent_team.invoke(user_id, "", request_type="activity_check"))
+            activity_message = await agent_team.invoke(user_id, "", request_type="activity_check")
             
             # If activity has decreased, send a support message
             if activity_message:
-                app.client.chat_postMessage(
+                await app.client.chat_postMessage(
                     channel=user_id,
                     text=activity_message
                 )
@@ -140,11 +146,11 @@ def check_activity(app, agent_team):
     except Exception as e:
         logger.error(f"Error checking activity: {e}")
 
-def get_active_users(app):
+async def get_active_users(app):
     """Get a list of active users who should receive messages"""
     try:
         # Get all users in the workspace
-        response = app.client.users_list()
+        response = await app.client.users_list()
         
         # Filter for real, active users (not bots, not deleted, not restricted)
         active_users = []

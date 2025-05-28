@@ -36,9 +36,14 @@ class OnboardingManager:
         current_step = user_data.get("onboarding_step", "welcome")
         
         if current_step == "welcome":
-            # Move to GitHub credentials step
-            self.user_manager.update_user(user_id, {"onboarding_step": "github"})
-            return self._get_github_prompt()
+            # Check if the message is a valid response to continue
+            if message.lower() in ["continue", "yes", "ok", "start"]:
+                # Move to GitHub credentials step
+                self.user_manager.update_user(user_id, {"onboarding_step": "github"})
+                return self._get_github_prompt()
+            else:
+                # If the user didn't type a valid continue command, repeat the welcome message
+                return "Please type 'continue' when you're ready to proceed with the setup."
             
         elif current_step == "github":
             # Save GitHub token

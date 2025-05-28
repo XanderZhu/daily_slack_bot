@@ -106,8 +106,10 @@ async def handle_direct_message(event, say):
         if user_manager:
             user_manager.log_interaction(user_id, "direct_message", {"text": text})
         
-        # Check if user is in onboarding process
+        # Get user data
         user_data = user_manager.get_user(user_id)
+        
+        # Check if user is in onboarding process
         if user_data.get("onboarding_started", False) and not user_data.get("onboarding_completed", False):
             # Process onboarding step
             response = onboarding_manager.process_onboarding_step(user_id, text)
