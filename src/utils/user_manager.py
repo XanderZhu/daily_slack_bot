@@ -3,7 +3,7 @@ import json
 import os
 from pathlib import Path
 from datetime import datetime
-from ..integrations.supabase_integration import SupabaseIntegration
+from ..integrations.sqlite_integration import SQLiteIntegration
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +14,11 @@ class UserManager:
     """
     
     def __init__(self):
-        """Initialize the user manager with Supabase integration"""
-        self.supabase = SupabaseIntegration()
+        """Initialize the user manager with SQLite integration"""
+        # Initialize SQLite database for persistent storage
+        self.db = SQLiteIntegration()
+        
+        # Keep the local file storage for backward compatibility
         self.user_cache = {}
         self.local_storage_path = Path("data/users")
         self.local_storage_path.mkdir(parents=True, exist_ok=True)
@@ -79,18 +82,21 @@ class UserManager:
         if slack_id in self.user_cache:
             return self.user_cache[slack_id]
         
-        # Try to get from Supabase
+        # Try to get from SQLite database
         user_data = None
-        if self.supabase and self.supabase.client:
-            user_data = self.supabase.get_user(slack_id)
+        if self.db:
+            user_data = self.db.get_user(slack_id)
         
-        # If not in Supabase, check local storage
+        # If not in database, check local storage (for backward compatibility)
         if not user_data:
             file_path = self.local_storage_path / f"{slack_id}.json"
             if file_path.exists():
                 try:
                     with open(file_path, 'r') as f:
                         user_data = json.load(f)
+                        # If found in local storage, migrate to SQLite
+                        if user_data and self.db:
+                            self.db.create_user(user_data)
                 except Exception as e:
                     logger.error(f"Error reading local user data: {e}")
         
@@ -106,17 +112,20 @@ class UserManager:
         user_data = self.get_user(slack_id)
         result = None
         
-        # Try to update in Supabase if available
-        if self.supabase and self.supabase.client:
-            if not user_data:
-                # Create new user
-                data['slack_id'] = slack_id
-                result = self.supabase.create_user(data)
+        # Try to update in SQLite database if available
+        if self.db:
+            # Merge the new data with existing data
+            if user_data:
+                merged_data = {**user_data, **data}
+                result = self.db.update_user(slack_id, merged_data)
             else:
-                # Update existing user
-                result = self.supabase.update_user(slack_id, data)
+                # Create new user if it doesn't exist
+                new_user = {**data, 'slack_id': slack_id}
+                if 'created_at' not in new_user:
+                    new_user['created_at'] = datetime.now().isoformat()
+                result = self.db.create_user(new_user)
         
-        # If Supabase update failed or not available, use local storage
+        # If database failed or not available, use local storage
         if not result:
             if not user_data:
                 # New user
@@ -161,18 +170,18 @@ class UserManager:
         # Update with new preferences
         updated_prefs = {**current_prefs, **preferences}
         
-        # Save to Supabase
+        # Save to SQLite
         return self.update_user(slack_id, {'preferences': updated_prefs})
     
     def log_interaction(self, slack_id, interaction_type, details=None):
         """Log an interaction with a user"""
         result = None
         
-        # Try to log to Supabase if available
-        if self.supabase and self.supabase.client:
-            result = self.supabase.log_interaction(slack_id, interaction_type, details)
+        # Try to log in SQLite database if available
+        if self.db:
+            result = self.db.log_interaction(slack_id, interaction_type, details)
         
-        # If Supabase logging failed or not available, use local storage
+        # If database failed or not available, log locally
         if not result:
             result = self._save_local_interaction(slack_id, interaction_type, details)
         
@@ -182,9 +191,9 @@ class UserManager:
         """Get recent interactions with a user"""
         interactions = []
         
-        # Try to get from Supabase if available
-        if self.supabase and self.supabase.client:
-            interactions = self.supabase.get_recent_interactions(slack_id, interaction_type, limit)
+        # Try to get from SQLite database if available
+        if self.db:
+            interactions = self.db.get_recent_interactions(slack_id, interaction_type, limit)
         
         # If Supabase failed or not available, use local storage
         if not interactions:
@@ -234,9 +243,9 @@ class UserManager:
         """Get all users"""
         users = []
         
-        # Try to get from Supabase if available
-        if self.supabase and self.supabase.client:
-            users = self.supabase.get_all_users()
+        # Try to get from SQLite database if available
+        if self.db:
+            users = self.db.get_all_users()
         
         # If Supabase failed or not available, use local storage
         if not users:
@@ -273,12 +282,12 @@ class UserManager:
         return active_users
         
     def store_credentials(self, slack_id, credential_type, credentials):
-        """Store user credentials in Supabase"""
+        """Store user credentials in database"""
         result = None
         
-        # Try to store in Supabase if available
-        if self.supabase and self.supabase.client:
-            result = self.supabase.store_credentials(slack_id, credential_type, credentials)
+        # Try to store in SQLite database if available
+        if self.db:
+            result = self.db.store_credentials(slack_id, credential_type, credentials)
         
         # If Supabase failed or not available, store in user data
         if not result:
@@ -300,12 +309,12 @@ class UserManager:
         return result
     
     def get_credentials(self, slack_id, credential_type):
-        """Get user credentials from Supabase"""
+        """Get user credentials from database"""
         credentials = None
         
-        # Try to get from Supabase if available
-        if self.supabase and self.supabase.client:
-            credentials_data = self.supabase.get_credentials(slack_id, credential_type)
+        # Try to get from SQLite database if available
+        if self.db:
+            credentials_data = self.db.get_credentials(slack_id, credential_type)
             if credentials_data:
                 return credentials_data
         
