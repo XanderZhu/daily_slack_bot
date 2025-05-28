@@ -55,7 +55,11 @@ class OnboardingManager:
             # Save GitHub token
             if self._validate_github_token(message):
                 self._save_github_credentials(user_id, message)
-                self.user_manager.update_user(user_id, {"onboarding_step": "google"})
+                # Move to the next step - this is already done in _save_github_credentials for skip case
+                if message.lower() not in ["skip", "later", "no"]:
+                    self.user_manager.update_user(user_id, {"onboarding_step": "google"})
+                    return self._get_google_prompt()
+                # If we're here, the _save_github_credentials method already moved to the next step
                 return self._get_google_prompt()
             else:
                 return "That doesn't appear to be a valid GitHub token. Please provide a valid personal access token."
@@ -148,7 +152,12 @@ class OnboardingManager:
     def _save_github_credentials(self, user_id, token):
         """Save GitHub credentials"""
         if token.lower() in ["skip", "later", "no"]:
-            self.user_manager.update_user(user_id, {"github_setup": "skipped"})
+            # Update user data to mark GitHub setup as skipped
+            self.user_manager.update_user(user_id, {
+                "github_setup": "skipped",
+                "onboarding_step": "google"  # Move to the next step
+            })
+            logger.info(f"User {user_id} skipped GitHub setup")
             return
             
         # Save token to user data
@@ -156,7 +165,7 @@ class OnboardingManager:
             "github_setup": "completed"
         })
         
-        # Save token to credentials in Supabase
+        # Save token to credentials in SQLite
         github_creds = {
             "token": token,
             "timestamp": datetime.now().isoformat()
