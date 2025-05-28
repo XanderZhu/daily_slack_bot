@@ -38,8 +38,22 @@ class AgentNetwork:
         self.research_agent = ResearchAgent(config_list)
         self.communication_agent = CommunicationAgent(config_list)
         
+        # External components
+        self.components = {}
+        
         # Set up the agent network connections
         self._setup_network()
+        
+    def set_components(self, components):
+        """Set external components for the agent network to use"""
+        self.components = components
+        
+        # Make components available to individual agents if needed
+        for agent in [self.head_manager, self.daily_planner, self.project_analyst, 
+                     self.motivator, self.developer_assistant, self.research_agent, 
+                     self.communication_agent]:
+            if hasattr(agent, 'set_components'):
+                agent.set_components(components)
         
     def _setup_network(self):
         """Set up the connections between agents in the network"""
