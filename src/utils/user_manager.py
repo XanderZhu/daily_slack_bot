@@ -1,60 +1,53 @@
-import os
-import json
 import logging
 from datetime import datetime
-from pathlib import Path
+from ..integrations.supabase_integration import SupabaseIntegration
 
 logger = logging.getLogger(__name__)
 
 class UserManager:
     """
     Manages user data, preferences, and mappings between different platforms.
-    Stores user information for personalized interactions.
+    Stores user information for personalized interactions using Supabase.
     """
     
-    def __init__(self, data_dir="data"):
-        """Initialize the user manager"""
-        self.data_dir = data_dir
-        self.users_file = os.path.join(data_dir, "users.json")
-        self.users = self._load_users()
-        
-        # Ensure data directory exists
-        os.makedirs(data_dir, exist_ok=True)
-    
-    def _load_users(self):
-        """Load user data from file"""
-        if os.path.exists(self.users_file):
-            try:
-                with open(self.users_file, 'r') as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.error(f"Error loading user data: {e}")
-                return {}
-        else:
-            return {}
-    
-    def _save_users(self):
-        """Save user data to file"""
-        try:
-            with open(self.users_file, 'w') as f:
-                json.dump(self.users, f, indent=2)
-        except Exception as e:
-            logger.error(f"Error saving user data: {e}")
+    def __init__(self):
+        """Initialize the user manager with Supabase integration"""
+        self.supabase = SupabaseIntegration()
+        self.user_cache = {}
     
     def get_user(self, slack_id):
         """Get user data by Slack ID"""
-        return self.users.get(slack_id, {})
+        # Check cache first
+        if slack_id in self.user_cache:
+            return self.user_cache[slack_id]
+        
+        # Get from Supabase
+        user_data = self.supabase.get_user(slack_id)
+        
+        # Cache the result
+        if user_data:
+            self.user_cache[slack_id] = user_data
+        
+        return user_data or {}
     
     def update_user(self, slack_id, data):
         """Update user data"""
-        if slack_id not in self.users:
-            self.users[slack_id] = {}
+        # Get current user data
+        user_data = self.get_user(slack_id)
         
-        self.users[slack_id].update(data)
-        self.users[slack_id]['last_updated'] = datetime.now().isoformat()
+        if not user_data:
+            # Create new user
+            data['slack_id'] = slack_id
+            result = self.supabase.create_user(data)
+        else:
+            # Update existing user
+            result = self.supabase.update_user(slack_id, data)
         
-        self._save_users()
-        return self.users[slack_id]
+        # Update cache
+        if result:
+            self.user_cache[slack_id] = result
+        
+        return result or {}
     
     def get_github_username(self, slack_id):
         """Get GitHub username for a Slack user"""
@@ -73,54 +66,39 @@ class UserManager:
     
     def update_preferences(self, slack_id, preferences):
         """Update user preferences"""
-        user = self.get_user(slack_id)
+        # Get current preferences
+        current_prefs = self.get_preferences(slack_id)
         
-        if 'preferences' not in user:
-            user['preferences'] = {}
+        # Update with new preferences
+        updated_prefs = {**current_prefs, **preferences}
         
-        user['preferences'].update(preferences)
-        
-        return self.update_user(slack_id, user)
+        # Save to Supabase
+        return self.update_user(slack_id, {'preferences': updated_prefs})
     
     def log_interaction(self, slack_id, interaction_type, details=None):
         """Log an interaction with a user"""
-        user = self.get_user(slack_id)
-        
-        if 'interactions' not in user:
-            user['interactions'] = []
-        
-        interaction = {
-            'timestamp': datetime.now().isoformat(),
-            'type': interaction_type
-        }
-        
-        if details:
-            interaction['details'] = details
-        
-        user['interactions'].append(interaction)
-        
-        # Keep only the last 100 interactions
-        if len(user['interactions']) > 100:
-            user['interactions'] = user['interactions'][-100:]
-        
-        return self.update_user(slack_id, user)
+        # Log interaction directly to Supabase
+        return self.supabase.log_interaction(slack_id, interaction_type, details)
     
     def get_recent_interactions(self, slack_id, interaction_type=None, limit=10):
         """Get recent interactions with a user"""
-        user = self.get_user(slack_id)
-        interactions = user.get('interactions', [])
-        
-        # Filter by type if specified
-        if interaction_type:
-            interactions = [i for i in interactions if i['type'] == interaction_type]
-        
-        # Sort by timestamp (newest first) and limit
-        interactions.sort(key=lambda x: x['timestamp'], reverse=True)
-        return interactions[:limit]
+        # Get interactions from Supabase
+        return self.supabase.get_recent_interactions(slack_id, interaction_type, limit)
     
     def map_slack_to_github(self, slack_id, github_username):
         """Map a Slack ID to a GitHub username"""
-        return self.update_user(slack_id, {'github_username': github_username})
+        # Update user in Supabase
+        result = self.update_user(slack_id, {'github_username': github_username})
+        
+        # Store GitHub token in credentials table if available
+        user = self.get_user(slack_id)
+        if 'github_token' in user:
+            self.supabase.store_credentials(slack_id, 'github', {
+                'token': user['github_token'],
+                'username': github_username
+            })
+        
+        return result
     
     def map_slack_to_email(self, slack_id, email):
         """Map a Slack ID to an email address"""
@@ -128,19 +106,30 @@ class UserManager:
     
     def get_all_users(self):
         """Get all users"""
-        return self.users
+        return self.supabase.get_all_users()
     
     def get_active_users(self, days=7):
         """Get users active in the last X days"""
-        active_users = {}
+        # This would ideally be a Supabase query with a date filter
+        # For now, we'll get all users and filter in memory
+        all_users = self.get_all_users()
+        active_users = []
+        
         cutoff = (datetime.now() - datetime.timedelta(days=days)).isoformat()
         
-        for slack_id, user in self.users.items():
-            # Check last interaction
-            interactions = user.get('interactions', [])
-            if interactions:
-                latest = max(interactions, key=lambda x: x['timestamp'])
-                if latest['timestamp'] >= cutoff:
-                    active_users[slack_id] = user
+        for user in all_users:
+            # Check last interaction from Supabase
+            recent_interactions = self.get_recent_interactions(user['slack_id'], limit=1)
+            
+            if recent_interactions and recent_interactions[0]['created_at'] >= cutoff:
+                active_users.append(user)
         
         return active_users
+        
+    def store_credentials(self, slack_id, credential_type, credentials):
+        """Store user credentials in Supabase"""
+        return self.supabase.store_credentials(slack_id, credential_type, credentials)
+    
+    def get_credentials(self, slack_id, credential_type):
+        """Get user credentials from Supabase"""
+        return self.supabase.get_credentials(slack_id, credential_type)

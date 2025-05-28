@@ -10,6 +10,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from src.agents.agent_network import create_agent_network
 from src.utils.scheduler import setup_scheduler
 from src.utils.initializer import Initializer
+from src.utils.onboarding import OnboardingManager
 from src.utils.user_manager import UserManager
 from src.utils.activity_monitor import ActivityMonitor
 
@@ -52,6 +53,9 @@ user_manager = components['user_manager']
 # Activity monitor for tracking user activity
 activity_monitor = components['activity_monitor']
 
+# Onboarding manager for new users
+onboarding_manager = OnboardingManager(user_manager)
+
 @app.event("app_mention")
 def handle_app_mention(event, say):
     """Handle when the bot is mentioned in a channel"""
@@ -65,6 +69,20 @@ def handle_app_mention(event, say):
     if user_manager:
         user_manager.log_interaction(user_id, "app_mention", {"text": text, "channel": channel_id})
     
+    # Check if user needs onboarding
+    if not onboarding_manager.check_onboarding_status(user_id):
+        # Start onboarding in a direct message
+        welcome_message = onboarding_manager.start_onboarding(user_id)
+        app.client.chat_postMessage(
+            channel=user_id,
+            text="I need to set up your account. I've sent you a direct message to get started."
+        )
+        app.client.chat_postMessage(
+            channel=user_id,
+            text=welcome_message
+        )
+        return
+    
     # Process the mention through the agent network
     response = agent_network.process_mention(user_id, text)
     say(response)
@@ -77,11 +95,30 @@ def handle_direct_message(event, say):
         text = event["text"]
         channel_id = event["channel"]
         
+        # Ignore messages from bots
+        if event.get("bot_id"):
+            return
+        
         logger.info(f"Direct message from user {user_id}: {text}")
         
         # Log the interaction
         if user_manager:
             user_manager.log_interaction(user_id, "direct_message", {"text": text})
+        
+        # Check if user is in onboarding process
+        user_data = user_manager.get_user(user_id)
+        if user_data.get("onboarding_started", False) and not user_data.get("onboarding_completed", False):
+            # Process onboarding step
+            response = onboarding_manager.process_onboarding_step(user_id, text)
+            say(response)
+            return
+        
+        # Check if this is a first-time user
+        if not user_data or not user_data.get("onboarding_started", False):
+            # Start onboarding
+            welcome_message = onboarding_manager.start_onboarding(user_id)
+            say(welcome_message)
+            return
         
         # Process the direct message through the agent network
         response = agent_network.process_direct_message(user_id, text)

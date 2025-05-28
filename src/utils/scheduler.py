@@ -53,17 +53,29 @@ def send_welcome_message(app, agent_network):
         # Get all users who should receive the welcome message
         users = get_active_users(app)
         
+        # Get user manager from agent network components
+        user_manager = agent_network.components.get('user_manager') if hasattr(agent_network, 'components') else None
+        
         for user_id in users:
-            # Generate the welcome message
-            welcome_message = agent_network.send_welcome_message(user_id)
+            # Check if user has completed onboarding
+            should_send = True
+            if user_manager:
+                user_data = user_manager.get_user(user_id)
+                if not user_data.get('onboarding_completed', False):
+                    logger.info(f"Skipping welcome message for user {user_id} - onboarding not completed")
+                    should_send = False
             
-            # Send the message
-            app.client.chat_postMessage(
-                channel=user_id,
-                text=welcome_message
-            )
-            
-            logger.info(f"Sent welcome message to user {user_id}")
+            if should_send:
+                # Generate the welcome message
+                welcome_message = agent_network.send_welcome_message(user_id)
+                
+                # Send the message
+                app.client.chat_postMessage(
+                    channel=user_id,
+                    text=welcome_message
+                )
+                
+                logger.info(f"Sent welcome message to user {user_id}")
     except Exception as e:
         logger.error(f"Error sending welcome message: {e}")
 
@@ -75,17 +87,29 @@ def send_hourly_checkin(app, agent_network):
         # Get all users who should receive the check-in
         users = get_active_users(app)
         
+        # Get user manager from agent network components
+        user_manager = agent_network.components.get('user_manager') if hasattr(agent_network, 'components') else None
+        
         for user_id in users:
-            # Generate the check-in message
-            checkin_message = agent_network.send_hourly_checkin(user_id)
+            # Check if user has completed onboarding
+            should_send = True
+            if user_manager:
+                user_data = user_manager.get_user(user_id)
+                if not user_data.get('onboarding_completed', False):
+                    logger.info(f"Skipping hourly check-in for user {user_id} - onboarding not completed")
+                    should_send = False
             
-            # Send the message
-            app.client.chat_postMessage(
-                channel=user_id,
-                text=checkin_message
-            )
-            
-            logger.info(f"Sent hourly check-in to user {user_id}")
+            if should_send:
+                # Generate the check-in message
+                checkin_message = agent_network.send_hourly_checkin(user_id)
+                
+                # Send the message
+                app.client.chat_postMessage(
+                    channel=user_id,
+                    text=checkin_message
+                )
+                
+                logger.info(f"Sent hourly check-in to user {user_id}")
     except Exception as e:
         logger.error(f"Error sending hourly check-in: {e}")
 

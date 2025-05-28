@@ -9,6 +9,7 @@ from ..integrations.github_integration import GitHubIntegration
 from ..integrations.google_calendar_integration import GoogleCalendarIntegration
 from ..integrations.gmail_integration import GmailIntegration
 from ..integrations.youtrack_integration import YouTrackIntegration
+from ..integrations.supabase_integration import SupabaseIntegration
 
 # Import utilities
 from .user_manager import UserManager
@@ -29,6 +30,9 @@ class Initializer:
         
         # Create necessary directories
         self._create_directories()
+        
+        # Initialize Supabase
+        self.supabase = None
         
         # Initialize components
         self.user_manager = None
@@ -54,6 +58,9 @@ class Initializer:
         """Initialize all components"""
         logger.info("Initializing all components")
         
+        # Initialize Supabase first
+        self.supabase = self._initialize_supabase()
+        
         # Initialize utilities
         self.user_manager = self._initialize_user_manager()
         self.activity_monitor = self._initialize_activity_monitor()
@@ -68,6 +75,7 @@ class Initializer:
         logger.info("All components initialized")
         
         return {
+            'supabase': self.supabase,
             'user_manager': self.user_manager,
             'activity_monitor': self.activity_monitor,
             'slack': self.slack,
@@ -76,11 +84,62 @@ class Initializer:
             'gmail': self.gmail,
             'youtrack': self.youtrack
         }
+        
+    def _initialize_supabase(self):
+        """Initialize Supabase and set up tables if needed"""
+        try:
+            logger.info("Initializing Supabase integration")
+            
+            # Check if required environment variables are set
+            if not os.environ.get("SUPABASE_URL"):
+                logger.warning("SUPABASE_URL not set in environment variables")
+                return None
+            
+            if not os.environ.get("SUPABASE_KEY"):
+                logger.warning("SUPABASE_KEY not set in environment variables")
+                return None
+            
+            # Initialize Supabase client
+            supabase = SupabaseIntegration()
+            
+            # Check if client was initialized successfully
+            if not supabase.client:
+                logger.error("Failed to initialize Supabase client")
+                return None
+            
+            # Set up tables if they don't exist
+            self._setup_supabase_tables(supabase)
+            
+            return supabase
+        except Exception as e:
+            logger.error(f"Error initializing Supabase: {e}")
+            return None
+    
+    def _setup_supabase_tables(self, supabase):
+        """Set up Supabase tables if they don't exist"""
+        # This would typically be done with SQL migrations
+        # For simplicity, we'll just check if tables exist and create them if not
+        try:
+            # We can't easily check if tables exist through the Python client
+            # In a real implementation, you would use migrations or RPC functions
+            # For now, we'll assume the tables are set up correctly
+            logger.info("Supabase tables assumed to be set up correctly")
+            
+            # The required tables are:
+            # - users: For storing user data
+            # - credentials: For storing user credentials
+            # - interactions: For logging user interactions
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error setting up Supabase tables: {e}")
+            return False
     
     def _initialize_user_manager(self):
         """Initialize the user manager"""
         try:
-            logger.info("Initializing user manager")
+            logger.info("Initializing user manager with Supabase")
+            # User manager now uses Supabase for storage
             return UserManager()
         except Exception as e:
             logger.error(f"Error initializing user manager: {e}")

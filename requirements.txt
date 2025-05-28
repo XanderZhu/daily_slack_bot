@@ -1,6 +1,6 @@
 slack-sdk==3.21.3
 slack-bolt==1.18.0
-pyautogen==0.2.3
+pyautogen==0.2.7
 python-dotenv==1.0.0
 schedule==1.2.0
 requests==2.31.0
