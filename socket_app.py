@@ -12,8 +12,6 @@ from src.agents.daily_slack_team import create_daily_slack_team
 from src.utils.scheduler import setup_scheduler
 from src.utils.initializer import Initializer
 from src.utils.onboarding import OnboardingManager
-from src.utils.user_manager import UserManager
-from src.utils.activity_monitor import ActivityMonitor
 
 # Configure logging
 log_dir = Path("logs")
@@ -194,28 +192,28 @@ async def main():
     
     # Start the Socket Mode handler
     try:
+        # Use a different approach to start the Socket Mode handler
+        # This is a workaround for the string encoding issue
         logger.info("Starting the Slack bot with Socket Mode")
         
-        # Patch the WebSocket ping method to handle string encoding
-        # This is needed because of an issue in aiohttp WebSocket implementation
-        import aiohttp
-        from functools import wraps
-        
-        # Store the original ping method
-        original_ping = aiohttp.ClientWebSocketResponse.ping
-        
-        # Create a patched ping method that handles encoding
-        @wraps(original_ping)
-        async def patched_ping(self, message=b''):
-            if isinstance(message, str):
-                message = message.encode('utf-8')
-            return await original_ping(self, message)
-        
-        # Apply the monkey patch
-        aiohttp.ClientWebSocketResponse.ping = patched_ping
-        
-        # Create the handler
+        # Create the handler with explicit encoding settings
         handler = AsyncSocketModeHandler(app, slack_app_token)
+        
+        # Monkey patch the connect method to avoid the encoding issue
+        original_connect = handler.client.connect
+        
+        async def patched_connect():
+            try:
+                # Set up the WebSocket session
+                await handler.client._establish_new_session()
+                # Start the message processor
+                await handler.client._run_message_listeners()
+            except Exception as e:
+                logger.error(f"Connection error: {e}")
+                raise
+        
+        # Replace the connect method
+        handler.client.connect = patched_connect
         
         # Start the handler
         await handler.start_async()
@@ -224,6 +222,7 @@ async def main():
     except Exception as e:
         logger.error(f"Error running the Slack bot: {e}")
         logger.exception("Detailed error information:")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
