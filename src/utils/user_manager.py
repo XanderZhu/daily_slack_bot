@@ -76,10 +76,10 @@ class UserManager:
             logger.error(f"Error saving local interaction data: {e}")
             return None
     
-    def get_user(self, slack_id):
+    def get_user(self, slack_id, force_refresh=False):
         """Get user data by Slack ID"""
-        # Check cache first
-        if slack_id in self.user_cache:
+        # Check cache first (unless force_refresh is True)
+        if not force_refresh and slack_id in self.user_cache:
             return self.user_cache[slack_id]
         
         # Try to get from SQLite database
@@ -104,7 +104,16 @@ class UserManager:
         if user_data:
             self.user_cache[slack_id] = user_data
         
-        return user_data or {}
+        return user_data
+        
+    def refresh_user(self, slack_id):
+        """Force refresh user data from the database"""
+        # Clear the cache for this user
+        if slack_id in self.user_cache:
+            del self.user_cache[slack_id]
+        
+        # Get fresh data from the database
+        return self.get_user(slack_id) or {}
     
     def update_user(self, slack_id, data):
         """Update user data"""
@@ -114,36 +123,42 @@ class UserManager:
         
         # Try to update in SQLite database if available
         if self.db:
-            # Merge the new data with existing data
-            if user_data:
-                merged_data = {**user_data, **data}
-                result = self.db.update_user(slack_id, merged_data)
-            else:
-                # Create new user if it doesn't exist
-                new_user = {**data, 'slack_id': slack_id}
-                if 'created_at' not in new_user:
-                    new_user['created_at'] = datetime.now().isoformat()
-                result = self.db.create_user(new_user)
+            try:
+                # Try to update the user data in SQLite
+                # If the user doesn't exist, create it
+                if not user_data:
+                    new_user = {'slack_id': slack_id}
+                    new_user.update(data)
+                    if 'created_at' not in new_user:
+                        new_user['created_at'] = datetime.now().isoformat()
+                    result = self.db.create_user(new_user)
+                else:
+                    # Update existing user
+                    result = self.db.update_user(slack_id, data)
+            except Exception as e:
+                # If there's an error (like missing columns), log it and continue
+                logger.error(f"Error updating user in SQLite: {e}")
+                # We'll fall back to local storage below
         
-        # If database failed or not available, use local storage
+        # If SQLite failed or not available, update in memory
         if not result:
-            if not user_data:
-                # New user
-                data['slack_id'] = slack_id
-                if 'created_at' not in data:
-                    data['created_at'] = datetime.now().isoformat()
-                result = data
-            else:
-                # Update existing user
-                result = {**user_data, **data}
-                result['updated_at'] = datetime.now().isoformat()
+            # Get current user data (or empty dict if not found)
+            current_data = user_data or {}
             
-            # Save to local storage
-            self._save_local_user(result)
-        
-        # Update cache
-        if result:
-            self.user_cache[slack_id] = result
+            # Update with new data
+            current_data.update(data)
+            current_data['slack_id'] = slack_id  # Ensure slack_id is set
+            
+            # Add updated_at timestamp
+            current_data['updated_at'] = datetime.now().isoformat()
+            
+            # Store in cache
+            self.user_cache[slack_id] = current_data
+            
+            # Store in local storage
+            self._save_local_user(current_data)
+            
+            result = current_data
         
         return result or {}
     

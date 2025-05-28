@@ -38,7 +38,7 @@ class SQLiteIntegration:
         # Create tables if they don't exist
         cursor = self.conn.cursor()
         
-        # Users table
+        # Users table - create with basic columns first
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,7 +75,39 @@ class SQLiteIntegration:
         )
         ''')
         
+        # Commit the basic tables
         self.conn.commit()
+        
+        # Now check for and add missing columns to the users table
+        try:
+            # Get existing columns in the users table
+            cursor.execute("PRAGMA table_info(users)")
+            existing_columns = [column[1] for column in cursor.fetchall()]
+            
+            # Define the columns that should exist for onboarding
+            required_columns = [
+                ("onboarding_started", "BOOLEAN"),
+                ("onboarding_completed", "BOOLEAN"),
+                ("onboarding_step", "TEXT"),
+                ("onboarding_timestamp", "TEXT"),
+                ("onboarding_completion_timestamp", "TEXT"),
+                ("github_setup", "TEXT"),
+                ("google_setup", "TEXT"),
+                ("youtrack_setup", "TEXT")
+            ]
+            
+            # Add missing columns
+            for column_name, column_type in required_columns:
+                if column_name not in existing_columns:
+                    logger.info(f"Adding column {column_name} to users table")
+                    cursor.execute(f"ALTER TABLE users ADD COLUMN {column_name} {column_type}")
+            
+            # Commit the column additions
+            self.conn.commit()
+            logger.info("Database schema updated successfully")
+        except Exception as e:
+            logger.error(f"Error updating database schema: {e}")
+            # Continue anyway - the basic functionality should still work
     
     def get_user(self, slack_id):
         """Get user data from SQLite"""

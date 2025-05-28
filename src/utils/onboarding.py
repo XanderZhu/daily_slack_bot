@@ -37,11 +37,29 @@ class OnboardingManager:
     def start_onboarding(self, user_id):
         """Start the onboarding process for a user"""
         # Mark that onboarding has started
-        self.user_manager.update_user(user_id, {
-            "onboarding_started": True,
-            "onboarding_step": "demo_welcome",
-            "onboarding_timestamp": datetime.now().isoformat()
-        })
+        try:
+            # First make sure the user exists
+            user_data = self.user_manager.get_user(user_id)
+            if not user_data:
+                # Create the user if they don't exist
+                self.user_manager.update_user(user_id, {
+                    "slack_id": user_id,
+                    "created_at": datetime.now().isoformat()
+                })
+            
+            # Now update the onboarding fields
+            update_result = self.user_manager.update_user(user_id, {
+                "onboarding_started": True,
+                "onboarding_step": "welcome",
+                "onboarding_timestamp": datetime.now().isoformat()
+            })
+            logger.info(f"Start onboarding update result: {update_result}")
+            
+            # Verify the update worked
+            updated_user = self.user_manager.get_user(user_id)
+            logger.info(f"User data after starting onboarding: {updated_user}")
+        except Exception as e:
+            logger.error(f"Error starting onboarding for user {user_id}: {e}")
         
         # Return the welcome message for demo
         return (
@@ -56,10 +74,19 @@ class OnboardingManager:
     def process_onboarding_step(self, user_id, message):
         """Process a user's response during onboarding"""
         user_data = self.user_manager.get_user(user_id)
-        current_step = user_data.get("onboarding_step", "demo_welcome")
+        current_step = user_data.get("onboarding_step", "welcome")
         
         logger.info(f"Processing onboarding step for user {user_id}: current_step={current_step}, message='{message}'")
+        logger.info(f"User data: {user_data}")
         
+        if current_step == "welcome":
+            # Check if the message is a valid response to continue
+            if message.lower() in ["continue", "yes", "ok", "start"]:
+                # Move to GitHub credentials step
+                logger.info(f"User {user_id} confirmed to continue. Moving to GitHub step.")
+                update_result = self.user_manager.update_user(user_id, {"onboarding_step": "github"})
+                logger.info(f"Update result: {update_result}")
+                return self._get_github_prompt()
         if current_step == "demo_welcome":
             if message.lower() == "skip":
                 # Move to demo mode
@@ -100,13 +127,20 @@ class OnboardingManager:
             # Original GitHub handling code
             if self._validate_github_token(message):
                 self._save_github_credentials(user_id, message)
-                # Move to the next step - this is already done in _save_github_credentials for skip case
-                if message.lower() not in ["skip", "later", "no"]:
-                    self.user_manager.update_user(user_id, {"onboarding_step": "google"})
-                    return self._get_google_prompt()
-                # If we're here, the _save_github_credentials method already moved to the next step
+                
+                try:
+                    update_result = self.user_manager.update_user(user_id, {"onboarding_step": "google"})
+                    logger.info(f"Update result after saving GitHub token: {update_result}")
+                    
+                    # Verify the update worked
+                    updated_user = self.user_manager.get_user(user_id)
+                    logger.info(f"User data after GitHub token update: {updated_user}")
+                except Exception as e:
+                    logger.error(f"Error updating user after GitHub token: {e}")
+                
                 return self._get_google_prompt()
             else:
+                logger.info(f"User {user_id} provided an invalid GitHub token: '{message}'")
                 return "That doesn't appear to be a valid GitHub token. Please provide a valid personal access token."
             
         elif current_step == "google":
@@ -190,21 +224,15 @@ class OnboardingManager:
         """Validate a GitHub token (basic validation only)"""
         # Basic validation - GitHub tokens are 40 characters
         token = token.strip()
-        if token.lower() in ["skip", "later", "no"]:
-            return True
+        # Note: We now handle skip separately in process_onboarding_step
+        # This method now only validates actual tokens
         return len(token) == 40 and token.isalnum()
     
     def _save_github_credentials(self, user_id, token):
         """Save GitHub credentials"""
-        if token.lower() in ["skip", "later", "no"]:
-            # Update user data to mark GitHub setup as skipped
-            self.user_manager.update_user(user_id, {
-                "github_setup": "skipped",
-                "onboarding_step": "google"  # Move to the next step
-            })
-            logger.info(f"User {user_id} skipped GitHub setup")
-            return
-            
+        # This method now only handles valid tokens, not skips
+        # Skip handling is done directly in process_onboarding_step
+        
         # Save token to user data
         self.user_manager.update_user(user_id, {
             "github_setup": "completed"
