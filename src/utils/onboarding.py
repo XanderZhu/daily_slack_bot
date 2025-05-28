@@ -50,7 +50,7 @@ class OnboardingManager:
             # Now update the onboarding fields
             update_result = self.user_manager.update_user(user_id, {
                 "onboarding_started": True,
-                "onboarding_step": "welcome",
+                "onboarding_step": "demo_welcome",  # Start with demo welcome step
                 "onboarding_timestamp": datetime.now().isoformat()
             })
             logger.info(f"Start onboarding update result: {update_result}")
@@ -73,11 +73,36 @@ class OnboardingManager:
     
     def process_onboarding_step(self, user_id, message):
         """Process a user's response during onboarding"""
-        user_data = self.user_manager.get_user(user_id)
-        current_step = user_data.get("onboarding_step", "welcome")
-        
-        logger.info(f"Processing onboarding step for user {user_id}: current_step={current_step}, message='{message}'")
-        logger.info(f"User data: {user_data}")
+        # Force refresh user data from database
+        try:
+            # Clear cache to ensure fresh data
+            if hasattr(self.user_manager, 'user_cache') and user_id in self.user_manager.user_cache:
+                del self.user_manager.user_cache[user_id]
+                
+            user_data = self.user_manager.get_user(user_id)
+            
+            # If user data is missing or incomplete, try to fix it
+            if not user_data or not user_data.get("onboarding_step"):
+                logger.warning(f"User {user_id} has incomplete data, attempting to fix")
+                # Re-initialize the user with demo_welcome step
+                self.user_manager.update_user(user_id, {
+                    "slack_id": user_id,
+                    "onboarding_started": True,
+                    "onboarding_step": "demo_welcome",
+                    "onboarding_timestamp": datetime.now().isoformat(),
+                    "created_at": datetime.now().isoformat() if not user_data else user_data.get("created_at")
+                })
+                # Get fresh data
+                user_data = self.user_manager.get_user(user_id)
+            
+            current_step = user_data.get("onboarding_step", "demo_welcome")
+            
+            logger.info(f"Processing onboarding step for user {user_id}: current_step={current_step}, message='{message}'")
+            logger.info(f"User data: {user_data}")
+        except Exception as e:
+            logger.error(f"Error getting user data: {e}")
+            # Default to demo_welcome if there's an error
+            current_step = "demo_welcome"
         
         if current_step == "welcome":
             # Check if the message is a valid response to continue
@@ -88,12 +113,20 @@ class OnboardingManager:
                 logger.info(f"Update result: {update_result}")
                 return self._get_github_prompt()
         if current_step == "demo_welcome":
-            if message.lower() == "skip":
-                # Move to demo mode
-                self.user_manager.update_user(user_id, {
-                    "onboarding_step": "demo_agenda",
-                    "demo_mode": True
-                })
+            if message.lower() in ["skip", "demo", "mock"]:
+                # Move to demo mode - store this in a way that won't cause DB errors
+                try:
+                    # First update without demo_mode in case it's not in schema
+                    self.user_manager.update_user(user_id, {
+                        "onboarding_step": "demo_agenda"
+                    })
+                    # Then try to set demo_mode separately
+                    try:
+                        self.user_manager.update_user(user_id, {"demo_mode": True})
+                    except Exception as e:
+                        logger.warning(f"Could not set demo_mode: {e}")
+                except Exception as e:
+                    logger.error(f"Error updating user for demo mode: {e}")
                 
                 # Show mock agenda
                 agenda_msg = "Hi! Today on your agenda:\n\n"
@@ -112,20 +145,54 @@ class OnboardingManager:
         
         elif current_step == "demo_agenda":
             # After user responds to agenda planning, simulate noticing an issue
-            self.user_manager.update_user(user_id, {
-                "onboarding_step": "completed",
-                "onboarding_completed": True
-            })
+            try:
+                self.user_manager.update_user(user_id, {
+                    "onboarding_step": "demo_issue",  # Use a specific step for the issue
+                    "onboarding_completed": True
+                })
+            except Exception as e:
+                logger.error(f"Error updating user for demo issue: {e}")
             
             # Pick a random mock issue
             import random
             issue = random.choice(self.mock_issues)
             
             return f"I notice you've been struggling with {issue}. Would you like some suggestions on how to handle this?"
+            
+        elif current_step == "demo_issue":
+            # Final response in the demo flow
+            return (
+                "Great! Here are some suggestions:\n\n"
+                "1. 🗓️ Block focused work time on your calendar\n"
+                "2. 📋 Use the Pomodoro technique (25 min work, 5 min break)\n"
+                "3. 🔔 Set up notification boundaries during deep work\n\n"
+                "This concludes our demo! In the full version, I would continue to:\n"
+                "• Check in with you hourly\n"
+                "• Monitor your GitHub activity\n"
+                "• Help decompose complex tasks\n"
+                "• Provide psychological support\n\n"
+                "Would you like to set up the full version now?"
+            )
         
         elif current_step == "github":
-            # Original GitHub handling code
-            if self._validate_github_token(message):
+            # Handle GitHub token or skip
+            if message.lower() in ["skip", "later", "no"]:
+                # User wants to skip GitHub setup
+                logger.info(f"User {user_id} is skipping GitHub setup")
+                
+                # Update user data to mark GitHub setup as skipped
+                try:
+                    update_result = self.user_manager.update_user(user_id, {
+                        "github_setup": "skipped",
+                        "onboarding_step": "google"  # Move to the next step
+                    })
+                    logger.info(f"Update result after skipping GitHub: {update_result}")
+                except Exception as e:
+                    logger.error(f"Error updating user after GitHub skip: {e}")
+                
+                return self._get_google_prompt()
+            elif self._validate_github_token(message):
+                # Valid GitHub token provided
                 self._save_github_credentials(user_id, message)
                 
                 try:

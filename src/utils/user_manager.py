@@ -237,13 +237,13 @@ class UserManager:
     
     def map_slack_to_github(self, slack_id, github_username):
         """Map a Slack ID to a GitHub username"""
-        # Update user in Supabase
+        # Update user in database
         result = self.update_user(slack_id, {'github_username': github_username})
         
         # Store GitHub token in credentials table if available
         user = self.get_user(slack_id)
         if 'github_token' in user:
-            self.supabase.store_credentials(slack_id, 'github', {
+            self.store_credentials(slack_id, 'github', {
                 'token': user['github_token'],
                 'username': github_username
             })

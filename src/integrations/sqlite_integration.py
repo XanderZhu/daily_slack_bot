@@ -93,7 +93,8 @@ class SQLiteIntegration:
                 ("onboarding_completion_timestamp", "TEXT"),
                 ("github_setup", "TEXT"),
                 ("google_setup", "TEXT"),
-                ("youtrack_setup", "TEXT")
+                ("youtrack_setup", "TEXT"),
+                ("demo_mode", "BOOLEAN")
             ]
             
             # Add missing columns
