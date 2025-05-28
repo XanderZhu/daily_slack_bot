@@ -191,6 +191,22 @@ class OnboardingManager:
                     logger.error(f"Error updating user after GitHub skip: {e}")
                 
                 return self._get_google_prompt()
+            elif message.lower() == "skip":
+                # User wants to skip GitHub setup with mock data
+                logger.info(f"User {user_id} is skipping GitHub setup with mock data")
+                
+                # Update user data to mark GitHub setup as skipped with mock data
+                try:
+                    update_result = self.user_manager.update_user(user_id, {
+                        "github_setup": "mock_data",
+                        "onboarding_step": "google",  # Move to the next step
+                        "demo_mode": True  # Mark as using demo/mock data
+                    })
+                    logger.info(f"Update result after using mock GitHub data: {update_result}")
+                except Exception as e:
+                    logger.error(f"Error updating user after GitHub mock data: {e}")
+                
+                return self._get_google_prompt()
             elif self._validate_github_token(message):
                 # Valid GitHub token provided
                 self._save_github_credentials(user_id, message)
@@ -208,7 +224,7 @@ class OnboardingManager:
                 return self._get_google_prompt()
             else:
                 logger.info(f"User {user_id} provided an invalid GitHub token: '{message}'")
-                return "That doesn't appear to be a valid GitHub token. Please provide a valid personal access token."
+                return "That doesn't appear to be a valid GitHub token. Please provide a valid personal access token or type 'skip' to use mock data."
             
         elif current_step == "google":
             # Save Google credentials
@@ -291,8 +307,8 @@ class OnboardingManager:
         """Validate a GitHub token (basic validation only)"""
         # Basic validation - GitHub tokens are 40 characters
         token = token.strip()
-        # Note: We now handle skip separately in process_onboarding_step
-        # This method now only validates actual tokens
+        # Note: We handle 'skip' separately in process_onboarding_step
+        # This method only validates actual tokens
         return len(token) == 40 and token.isalnum()
     
     def _save_github_credentials(self, user_id, token):
