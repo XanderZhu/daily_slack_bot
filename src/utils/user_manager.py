@@ -1,4 +1,7 @@
 import logging
+import json
+import os
+from pathlib import Path
 from datetime import datetime
 from ..integrations.supabase_integration import SupabaseIntegration
 
@@ -14,6 +17,61 @@ class UserManager:
         """Initialize the user manager with Supabase integration"""
         self.supabase = SupabaseIntegration()
         self.user_cache = {}
+        self.local_storage_path = Path("data/users")
+        self.local_storage_path.mkdir(parents=True, exist_ok=True)
+        self.interactions_path = Path("data/interactions")
+        self.interactions_path.mkdir(parents=True, exist_ok=True)
+        
+        # Load any existing local data into cache
+        self._load_local_users()
+    
+    def _load_local_users(self):
+        """Load user data from local storage"""
+        try:
+            for user_file in self.local_storage_path.glob("*.json"):
+                try:
+                    with open(user_file, 'r') as f:
+                        user_data = json.load(f)
+                        if 'slack_id' in user_data:
+                            self.user_cache[user_data['slack_id']] = user_data
+                except Exception as e:
+                    logger.error(f"Error loading local user data from {user_file}: {e}")
+        except Exception as e:
+            logger.error(f"Error loading local users: {e}")
+    
+    def _save_local_user(self, user_data):
+        """Save user data to local storage"""
+        if not user_data or 'slack_id' not in user_data:
+            return
+            
+        try:
+            file_path = self.local_storage_path / f"{user_data['slack_id']}.json"
+            with open(file_path, 'w') as f:
+                json.dump(user_data, f)
+        except Exception as e:
+            logger.error(f"Error saving local user data: {e}")
+    
+    def _save_local_interaction(self, slack_id, interaction_type, details=None):
+        """Save interaction data to local storage"""
+        try:
+            interaction_data = {
+                "slack_id": slack_id,
+                "interaction_type": interaction_type,
+                "details": details,
+                "created_at": datetime.now().isoformat()
+            }
+            
+            # Create a filename with timestamp to ensure uniqueness
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+            file_path = self.interactions_path / f"{slack_id}_{timestamp}.json"
+            
+            with open(file_path, 'w') as f:
+                json.dump(interaction_data, f)
+                
+            return interaction_data
+        except Exception as e:
+            logger.error(f"Error saving local interaction data: {e}")
+            return None
     
     def get_user(self, slack_id):
         """Get user data by Slack ID"""
@@ -21,8 +79,20 @@ class UserManager:
         if slack_id in self.user_cache:
             return self.user_cache[slack_id]
         
-        # Get from Supabase
-        user_data = self.supabase.get_user(slack_id)
+        # Try to get from Supabase
+        user_data = None
+        if self.supabase and self.supabase.client:
+            user_data = self.supabase.get_user(slack_id)
+        
+        # If not in Supabase, check local storage
+        if not user_data:
+            file_path = self.local_storage_path / f"{slack_id}.json"
+            if file_path.exists():
+                try:
+                    with open(file_path, 'r') as f:
+                        user_data = json.load(f)
+                except Exception as e:
+                    logger.error(f"Error reading local user data: {e}")
         
         # Cache the result
         if user_data:
@@ -34,14 +104,33 @@ class UserManager:
         """Update user data"""
         # Get current user data
         user_data = self.get_user(slack_id)
+        result = None
         
-        if not user_data:
-            # Create new user
-            data['slack_id'] = slack_id
-            result = self.supabase.create_user(data)
-        else:
-            # Update existing user
-            result = self.supabase.update_user(slack_id, data)
+        # Try to update in Supabase if available
+        if self.supabase and self.supabase.client:
+            if not user_data:
+                # Create new user
+                data['slack_id'] = slack_id
+                result = self.supabase.create_user(data)
+            else:
+                # Update existing user
+                result = self.supabase.update_user(slack_id, data)
+        
+        # If Supabase update failed or not available, use local storage
+        if not result:
+            if not user_data:
+                # New user
+                data['slack_id'] = slack_id
+                if 'created_at' not in data:
+                    data['created_at'] = datetime.now().isoformat()
+                result = data
+            else:
+                # Update existing user
+                result = {**user_data, **data}
+                result['updated_at'] = datetime.now().isoformat()
+            
+            # Save to local storage
+            self._save_local_user(result)
         
         # Update cache
         if result:
@@ -77,13 +166,50 @@ class UserManager:
     
     def log_interaction(self, slack_id, interaction_type, details=None):
         """Log an interaction with a user"""
-        # Log interaction directly to Supabase
-        return self.supabase.log_interaction(slack_id, interaction_type, details)
+        result = None
+        
+        # Try to log to Supabase if available
+        if self.supabase and self.supabase.client:
+            result = self.supabase.log_interaction(slack_id, interaction_type, details)
+        
+        # If Supabase logging failed or not available, use local storage
+        if not result:
+            result = self._save_local_interaction(slack_id, interaction_type, details)
+        
+        return result
     
     def get_recent_interactions(self, slack_id, interaction_type=None, limit=10):
         """Get recent interactions with a user"""
-        # Get interactions from Supabase
-        return self.supabase.get_recent_interactions(slack_id, interaction_type, limit)
+        interactions = []
+        
+        # Try to get from Supabase if available
+        if self.supabase and self.supabase.client:
+            interactions = self.supabase.get_recent_interactions(slack_id, interaction_type, limit)
+        
+        # If Supabase failed or not available, use local storage
+        if not interactions:
+            try:
+                # Get all interaction files for this user
+                user_interactions = list(self.interactions_path.glob(f"{slack_id}_*.json"))
+                
+                # Load each interaction
+                loaded_interactions = []
+                for file_path in user_interactions:
+                    try:
+                        with open(file_path, 'r') as f:
+                            interaction = json.load(f)
+                            if interaction_type is None or interaction.get('interaction_type') == interaction_type:
+                                loaded_interactions.append(interaction)
+                    except Exception as e:
+                        logger.error(f"Error loading interaction from {file_path}: {e}")
+                
+                # Sort by created_at (newest first) and limit
+                loaded_interactions.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+                interactions = loaded_interactions[:limit]
+            except Exception as e:
+                logger.error(f"Error getting local interactions: {e}")
+        
+        return interactions
     
     def map_slack_to_github(self, slack_id, github_username):
         """Map a Slack ID to a GitHub username"""
@@ -106,7 +232,27 @@ class UserManager:
     
     def get_all_users(self):
         """Get all users"""
-        return self.supabase.get_all_users()
+        users = []
+        
+        # Try to get from Supabase if available
+        if self.supabase and self.supabase.client:
+            users = self.supabase.get_all_users()
+        
+        # If Supabase failed or not available, use local storage
+        if not users:
+            try:
+                # Get all user files
+                for user_file in self.local_storage_path.glob("*.json"):
+                    try:
+                        with open(user_file, 'r') as f:
+                            user_data = json.load(f)
+                            users.append(user_data)
+                    except Exception as e:
+                        logger.error(f"Error loading user from {user_file}: {e}")
+            except Exception as e:
+                logger.error(f"Error getting local users: {e}")
+        
+        return users
     
     def get_active_users(self, days=7):
         """Get users active in the last X days"""
@@ -128,8 +274,47 @@ class UserManager:
         
     def store_credentials(self, slack_id, credential_type, credentials):
         """Store user credentials in Supabase"""
-        return self.supabase.store_credentials(slack_id, credential_type, credentials)
+        result = None
+        
+        # Try to store in Supabase if available
+        if self.supabase and self.supabase.client:
+            result = self.supabase.store_credentials(slack_id, credential_type, credentials)
+        
+        # If Supabase failed or not available, store in user data
+        if not result:
+            try:
+                # Get current user data
+                user_data = self.get_user(slack_id) or {'slack_id': slack_id}
+                
+                # Add credentials to user data
+                if 'credentials' not in user_data:
+                    user_data['credentials'] = {}
+                user_data['credentials'][credential_type] = credentials
+                
+                # Update user
+                self.update_user(slack_id, user_data)
+                result = {'slack_id': slack_id, 'credential_type': credential_type, 'data': credentials}
+            except Exception as e:
+                logger.error(f"Error storing credentials locally: {e}")
+        
+        return result
     
     def get_credentials(self, slack_id, credential_type):
         """Get user credentials from Supabase"""
-        return self.supabase.get_credentials(slack_id, credential_type)
+        credentials = None
+        
+        # Try to get from Supabase if available
+        if self.supabase and self.supabase.client:
+            credentials_data = self.supabase.get_credentials(slack_id, credential_type)
+            if credentials_data:
+                return credentials_data
+        
+        # If Supabase failed or not available, get from user data
+        try:
+            user_data = self.get_user(slack_id)
+            if user_data and 'credentials' in user_data and credential_type in user_data['credentials']:
+                credentials = user_data['credentials'][credential_type]
+        except Exception as e:
+            logger.error(f"Error getting credentials locally: {e}")
+        
+        return credentials

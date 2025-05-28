@@ -23,14 +23,30 @@ class SupabaseIntegration:
                 self.client = None
                 return
             
-            self.client = create_client(url, key)
-            logger.info("Supabase client initialized successfully")
+            # Create client without proxy parameter to avoid the error
+            try:
+                self.client = create_client(url, key)
+                logger.info("Supabase client initialized successfully")
+            except TypeError as e:
+                if "proxy" in str(e):
+                    # If the error is about the proxy parameter, try without it
+                    logger.warning("Trying to initialize Supabase client without proxy parameter")
+                    # Use a direct approach without the proxy parameter
+                    from supabase.client import SupabaseClient
+                    self.client = SupabaseClient(url, key)
+                    logger.info("Supabase client initialized successfully using alternative method")
+                else:
+                    raise
         except Exception as e:
             logger.error(f"Error initializing Supabase client: {e}")
             self.client = None
     
     def get_user(self, slack_id):
         """Get user data from Supabase"""
+        if not self.client:
+            logger.error("Supabase client not initialized")
+            return None
+            
         try:
             response = self.client.table("users").select("*").eq("slack_id", slack_id).execute()
             
@@ -44,6 +60,10 @@ class SupabaseIntegration:
     
     def create_user(self, user_data):
         """Create a new user in Supabase"""
+        if not self.client:
+            logger.error("Supabase client not initialized")
+            return None
+            
         try:
             response = self.client.table("users").insert(user_data).execute()
             
@@ -57,21 +77,32 @@ class SupabaseIntegration:
     
     def update_user(self, slack_id, user_data):
         """Update user data in Supabase"""
+        if not self.client:
+            logger.error("Supabase client not initialized")
+            return None
+            
         try:
             user_data["updated_at"] = datetime.now().isoformat()
+            
+            logger.info(f"Updating user {slack_id} in Supabase with data: {user_data}")
             
             # Update user data
             response = self.client.table("users").update(user_data).eq("slack_id", slack_id).execute()
             
             if response.data:
-                logger.info(f"Updated user in Supabase: {slack_id}")
+                logger.info(f"Successfully updated user in Supabase: {slack_id}")
+                logger.info(f"Updated user data: {response.data[0]}")
                 return response.data[0]
             else:
                 logger.error(f"No data returned from Supabase user update for {slack_id}")
+                # Check if user exists
+                check = self.client.table("users").select("*").eq("slack_id", slack_id).execute()
+                logger.error(f"User check result: {check.data}")
                 return None
                 
         except Exception as e:
             logger.error(f"Error updating user in Supabase: {e}")
+            logger.exception("Detailed error information:")
             return None
     
     def store_credentials(self, slack_id, credential_type, credentials):

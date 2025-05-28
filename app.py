@@ -4,6 +4,7 @@ import logging
 import time
 import asyncio
 from pathlib import Path
+from datetime import datetime
 from dotenv import load_dotenv
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
@@ -57,6 +58,41 @@ activity_monitor = components['activity_monitor']
 # Onboarding manager for new users
 onboarding_manager = OnboardingManager(user_manager)
 
+
+async def ensure_user_exists(user_id):
+    """Ensure a user exists in Supabase, creating them if they don't"""
+    if not user_manager:
+        return None
+        
+    # Get user data
+    user_data = user_manager.get_user(user_id)
+    
+    # If user doesn't exist in Supabase, create them
+    if not user_data:
+        try:
+            # Get user info from Slack
+            user_info = await app.client.users_info(user=user_id)
+            slack_user = user_info["user"]
+            
+            # Create basic user profile
+            new_user_data = {
+                "slack_id": user_id,
+                "name": slack_user.get("real_name", ""),
+                "email": slack_user.get("profile", {}).get("email", ""),
+                "created_at": datetime.now().isoformat(),
+                "onboarding_started": False,
+                "onboarding_completed": False
+            }
+            
+            # Create user in Supabase
+            user_data = user_manager.update_user(user_id, new_user_data)
+            logger.info(f"Created new user in Supabase: {user_id}")
+        except Exception as e:
+            logger.error(f"Error creating user in Supabase: {e}")
+            return None
+    
+    return user_data
+
 @app.event("app_mention")
 async def handle_app_mention(event, say):
     """Handle when the bot is mentioned in a channel"""
@@ -65,6 +101,9 @@ async def handle_app_mention(event, say):
     channel_id = event["channel"]
     
     logger.info(f"App mention from user {user_id} in channel {channel_id}: {text}")
+    
+    # Ensure user exists in Supabase
+    user_data = await ensure_user_exists(user_id)
     
     # Log the interaction
     if user_manager:
@@ -102,22 +141,36 @@ async def handle_direct_message(event, say):
         
         logger.info(f"Direct message from user {user_id}: {text}")
         
+        # Ensure user exists in Supabase
+        user_data = await ensure_user_exists(user_id)
+        
         # Log the interaction
         if user_manager:
             user_manager.log_interaction(user_id, "direct_message", {"text": text})
         
-        # Get user data
-        user_data = user_manager.get_user(user_id)
-        
         # Check if user is in onboarding process
-        if user_data.get("onboarding_started", False) and not user_data.get("onboarding_completed", False):
+        logger.info(f"Checking onboarding status for user {user_id}: {user_data}")
+        
+        # Always get fresh user data directly from Supabase to avoid cache issues
+        if user_manager.supabase and user_manager.supabase.client:
+            fresh_user_data = user_manager.supabase.get_user(user_id)
+            logger.info(f"Fresh user data from Supabase: {fresh_user_data}")
+            if fresh_user_data:
+                user_data = fresh_user_data
+                # Update cache
+                user_manager.user_cache[user_id] = fresh_user_data
+        
+        if user_data and user_data.get("onboarding_started", False) and not user_data.get("onboarding_completed", False):
+            logger.info(f"User {user_id} is in onboarding process. Processing step with message: '{text}'")
             # Process onboarding step
             response = onboarding_manager.process_onboarding_step(user_id, text)
+            logger.info(f"Onboarding response: {response}")
             await say(response)
             return
         
         # Check if this is a first-time user
         if not user_data or not user_data.get("onboarding_started", False):
+            logger.info(f"Starting onboarding for new user {user_id}")
             # Start onboarding
             welcome_message = onboarding_manager.start_onboarding(user_id)
             await say(welcome_message)
@@ -135,6 +188,9 @@ async def handle_plan_day(ack, body, say):
     
     logger.info(f"Plan day action from user {user_id}")
     
+    # Ensure user exists in Supabase
+    user_data = await ensure_user_exists(user_id)
+    
     # Log the interaction
     if user_manager:
         user_manager.log_interaction(user_id, "plan_day_button")
@@ -150,6 +206,9 @@ async def handle_show_tasks(ack, body, say):
     user_id = body["user"]["id"]
     
     logger.info(f"Show tasks action from user {user_id}")
+    
+    # Ensure user exists in Supabase
+    user_data = await ensure_user_exists(user_id)
     
     # Log the interaction
     if user_manager:

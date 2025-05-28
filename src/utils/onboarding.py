@@ -35,14 +35,20 @@ class OnboardingManager:
         user_data = self.user_manager.get_user(user_id)
         current_step = user_data.get("onboarding_step", "welcome")
         
+        logger.info(f"Processing onboarding step for user {user_id}: current_step={current_step}, message='{message}'")
+        logger.info(f"User data: {user_data}")
+        
         if current_step == "welcome":
             # Check if the message is a valid response to continue
             if message.lower() in ["continue", "yes", "ok", "start"]:
                 # Move to GitHub credentials step
-                self.user_manager.update_user(user_id, {"onboarding_step": "github"})
+                logger.info(f"User {user_id} confirmed to continue. Moving to GitHub step.")
+                update_result = self.user_manager.update_user(user_id, {"onboarding_step": "github"})
+                logger.info(f"Update result: {update_result}")
                 return self._get_github_prompt()
             else:
                 # If the user didn't type a valid continue command, repeat the welcome message
+                logger.info(f"User {user_id} sent invalid continue response: '{message}'")
                 return "Please type 'continue' when you're ready to proceed with the setup."
             
         elif current_step == "github":
