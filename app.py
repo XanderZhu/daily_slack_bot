@@ -60,14 +60,14 @@ onboarding_manager = OnboardingManager(user_manager)
 
 
 async def ensure_user_exists(user_id):
-    """Ensure a user exists in Supabase, creating them if they don't"""
+    """Ensure a user exists in the database, creating them if they don't"""
     if not user_manager:
         return None
         
     # Get user data
     user_data = user_manager.get_user(user_id)
     
-    # If user doesn't exist in Supabase, create them
+    # If user doesn't exist in the database, create them
     if not user_data:
         try:
             # Get user info from Slack
@@ -84,11 +84,11 @@ async def ensure_user_exists(user_id):
                 "onboarding_completed": False
             }
             
-            # Create user in Supabase
+            # Create user in the database
             user_data = user_manager.update_user(user_id, new_user_data)
-            logger.info(f"Created new user in Supabase: {user_id}")
+            logger.info(f"Created new user in SQLite database: {user_id}")
         except Exception as e:
-            logger.error(f"Error creating user in Supabase: {e}")
+            logger.error(f"Error creating user in database: {e}")
             return None
     
     return user_data
@@ -102,7 +102,7 @@ async def handle_app_mention(event, say):
     
     logger.info(f"App mention from user {user_id} in channel {channel_id}: {text}")
     
-    # Ensure user exists in Supabase
+    # Ensure user exists in the database
     user_data = await ensure_user_exists(user_id)
     
     # Log the interaction
@@ -147,7 +147,7 @@ async def handle_direct_message(event, say):
         
         logger.info(f"Direct message from user {user_id}: {text}")
         
-        # Ensure user exists in Supabase
+        # Ensure user exists in the database
         user_data = await ensure_user_exists(user_id)
         
         # Log the interaction
@@ -157,10 +157,10 @@ async def handle_direct_message(event, say):
         # Check if user is in onboarding process
         logger.info(f"Checking onboarding status for user {user_id}: {user_data}")
         
-        # Always get fresh user data directly from Supabase to avoid cache issues
-        if user_manager.supabase and user_manager.supabase.client:
-            fresh_user_data = user_manager.supabase.get_user(user_id)
-            logger.info(f"Fresh user data from Supabase: {fresh_user_data}")
+        # Always get fresh user data directly from SQLite to avoid cache issues
+        if user_manager.db:
+            fresh_user_data = user_manager.db.get_user(user_id)
+            logger.info(f"Fresh user data from SQLite: {fresh_user_data}")
             if fresh_user_data:
                 user_data = fresh_user_data
                 # Update cache
@@ -194,7 +194,7 @@ async def handle_plan_day(ack, body, say):
     
     logger.info(f"Plan day action from user {user_id}")
     
-    # Ensure user exists in Supabase
+    # Ensure user exists in the database
     user_data = await ensure_user_exists(user_id)
     
     # Log the interaction
@@ -213,7 +213,7 @@ async def handle_show_tasks(ack, body, say):
     
     logger.info(f"Show tasks action from user {user_id}")
     
-    # Ensure user exists in Supabase
+    # Ensure user exists in the database
     user_data = await ensure_user_exists(user_id)
     
     # Log the interaction

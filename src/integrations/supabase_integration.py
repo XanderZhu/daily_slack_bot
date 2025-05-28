@@ -2,6 +2,8 @@ import os
 import logging
 from datetime import datetime
 from supabase import create_client, Client
+from supabase.lib.client_options import ClientOptions
+from postgrest import PostgrestClient
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -23,20 +25,42 @@ class SupabaseIntegration:
                 self.client = None
                 return
             
-            # Create client without proxy parameter to avoid the error
+            # Create a custom client implementation
             try:
-                self.client = create_client(url, key)
-                logger.info("Supabase client initialized successfully")
-            except TypeError as e:
-                if "proxy" in str(e):
-                    # If the error is about the proxy parameter, try without it
-                    logger.warning("Trying to initialize Supabase client without proxy parameter")
-                    # Use a direct approach without the proxy parameter
-                    from supabase.client import SupabaseClient
-                    self.client = SupabaseClient(url, key)
-                    logger.info("Supabase client initialized successfully using alternative method")
-                else:
-                    raise
+                # Create a custom client class that mimics the Supabase client
+                class CustomSupabaseClient:
+                    def __init__(self, url, key):
+                        self.url = url
+                        self.key = key
+                        self.rest_url = f"{url}/rest/v1"
+                        self.auth_url = f"{url}/auth/v1"
+                        self.storage_url = f"{url}/storage/v1"
+                        self.headers = {
+                            "apikey": key,
+                            "Authorization": f"Bearer {key}",
+                            "Content-Type": "application/json"
+                        }
+                    
+                    def table(self, table_name):
+                        # Create a PostgrestClient for the table using the correct parameters
+                        from postgrest._sync.client import SyncPostgrestClient
+                        
+                        # Initialize the client with the correct parameters
+                        client = SyncPostgrestClient(
+                            base_url=self.rest_url,
+                            schema="public",
+                            headers=self.headers
+                        )
+                        
+                        # Return the table query builder
+                        return client.from_(table_name)
+                
+                # Initialize the custom client
+                self.client = CustomSupabaseClient(url, key)
+                logger.info("Custom Supabase client initialized successfully")
+            except Exception as e:
+                logger.error(f"Error initializing custom Supabase client: {e}")
+                self.client = None
         except Exception as e:
             logger.error(f"Error initializing Supabase client: {e}")
             self.client = None
