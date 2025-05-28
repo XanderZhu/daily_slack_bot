@@ -2,36 +2,37 @@ import logging
 import schedule
 import time
 import threading
+import asyncio
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-def setup_scheduler(app, agent_network):
+def setup_scheduler(app, agent_team):
     """Set up scheduled tasks for the Slack bot"""
     logger.info("Setting up scheduler for daily and hourly tasks")
     
     # Schedule the daily welcome message (9 AM on weekdays)
-    schedule.every().monday.at("09:00").do(send_welcome_message, app=app, agent_network=agent_network)
-    schedule.every().tuesday.at("09:00").do(send_welcome_message, app=app, agent_network=agent_network)
-    schedule.every().wednesday.at("09:00").do(send_welcome_message, app=app, agent_network=agent_network)
-    schedule.every().thursday.at("09:00").do(send_welcome_message, app=app, agent_network=agent_network)
-    schedule.every().friday.at("09:00").do(send_welcome_message, app=app, agent_network=agent_network)
+    schedule.every().monday.at("09:00").do(send_welcome_message, app=app, agent_team=agent_team)
+    schedule.every().tuesday.at("09:00").do(send_welcome_message, app=app, agent_team=agent_team)
+    schedule.every().wednesday.at("09:00").do(send_welcome_message, app=app, agent_team=agent_team)
+    schedule.every().thursday.at("09:00").do(send_welcome_message, app=app, agent_team=agent_team)
+    schedule.every().friday.at("09:00").do(send_welcome_message, app=app, agent_team=agent_team)
     
     # Schedule hourly check-ins (on the hour, during work hours on weekdays)
     for hour in range(10, 18):  # 10 AM to 5 PM
-        schedule.every().monday.at(f"{hour:02d}:00").do(send_hourly_checkin, app=app, agent_network=agent_network)
-        schedule.every().tuesday.at(f"{hour:02d}:00").do(send_hourly_checkin, app=app, agent_network=agent_network)
-        schedule.every().wednesday.at(f"{hour:02d}:00").do(send_hourly_checkin, app=app, agent_network=agent_network)
-        schedule.every().thursday.at(f"{hour:02d}:00").do(send_hourly_checkin, app=app, agent_network=agent_network)
-        schedule.every().friday.at(f"{hour:02d}:00").do(send_hourly_checkin, app=app, agent_network=agent_network)
+        schedule.every().monday.at(f"{hour:02d}:00").do(send_hourly_checkin, app=app, agent_team=agent_team)
+        schedule.every().tuesday.at(f"{hour:02d}:00").do(send_hourly_checkin, app=app, agent_team=agent_team)
+        schedule.every().wednesday.at(f"{hour:02d}:00").do(send_hourly_checkin, app=app, agent_team=agent_team)
+        schedule.every().thursday.at(f"{hour:02d}:00").do(send_hourly_checkin, app=app, agent_team=agent_team)
+        schedule.every().friday.at(f"{hour:02d}:00").do(send_hourly_checkin, app=app, agent_team=agent_team)
     
     # Schedule activity checks (every 2 hours during work hours on weekdays)
     for hour in range(11, 18, 2):  # 11 AM, 1 PM, 3 PM, 5 PM
-        schedule.every().monday.at(f"{hour:02d}:00").do(check_activity, app=app, agent_network=agent_network)
-        schedule.every().tuesday.at(f"{hour:02d}:00").do(check_activity, app=app, agent_network=agent_network)
-        schedule.every().wednesday.at(f"{hour:02d}:00").do(check_activity, app=app, agent_network=agent_network)
-        schedule.every().thursday.at(f"{hour:02d}:00").do(check_activity, app=app, agent_network=agent_network)
-        schedule.every().friday.at(f"{hour:02d}:00").do(check_activity, app=app, agent_network=agent_network)
+        schedule.every().monday.at(f"{hour:02d}:00").do(check_activity, app=app, agent_team=agent_team)
+        schedule.every().tuesday.at(f"{hour:02d}:00").do(check_activity, app=app, agent_team=agent_team)
+        schedule.every().wednesday.at(f"{hour:02d}:00").do(check_activity, app=app, agent_team=agent_team)
+        schedule.every().thursday.at(f"{hour:02d}:00").do(check_activity, app=app, agent_team=agent_team)
+        schedule.every().friday.at(f"{hour:02d}:00").do(check_activity, app=app, agent_team=agent_team)
     
     # Start the scheduler in a background thread
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
@@ -45,7 +46,7 @@ def run_scheduler():
         schedule.run_pending()
         time.sleep(60)  # Check every minute
 
-def send_welcome_message(app, agent_network):
+def send_welcome_message(app, agent_team):
     """Send the daily welcome message to all users"""
     logger.info("Sending daily welcome message")
     
@@ -53,8 +54,8 @@ def send_welcome_message(app, agent_network):
         # Get all users who should receive the welcome message
         users = get_active_users(app)
         
-        # Get user manager from agent network components
-        user_manager = agent_network.components.get('user_manager') if hasattr(agent_network, 'components') else None
+        # Get user manager from agent team components
+        user_manager = agent_team.components.get('user_manager') if hasattr(agent_team, 'components') else None
         
         for user_id in users:
             # Check if user has completed onboarding
@@ -67,7 +68,8 @@ def send_welcome_message(app, agent_network):
             
             if should_send:
                 # Generate the welcome message
-                welcome_message = agent_network.send_welcome_message(user_id)
+                # Run the async method in a new event loop
+                welcome_message = asyncio.run(agent_team.invoke(user_id, "", request_type="welcome"))
                 
                 # Send the message
                 app.client.chat_postMessage(
@@ -79,7 +81,7 @@ def send_welcome_message(app, agent_network):
     except Exception as e:
         logger.error(f"Error sending welcome message: {e}")
 
-def send_hourly_checkin(app, agent_network):
+def send_hourly_checkin(app, agent_team):
     """Send hourly check-in messages to all users"""
     logger.info("Sending hourly check-in messages")
     
@@ -87,8 +89,8 @@ def send_hourly_checkin(app, agent_network):
         # Get all users who should receive the check-in
         users = get_active_users(app)
         
-        # Get user manager from agent network components
-        user_manager = agent_network.components.get('user_manager') if hasattr(agent_network, 'components') else None
+        # Get user manager from agent team components
+        user_manager = agent_team.components.get('user_manager') if hasattr(agent_team, 'components') else None
         
         for user_id in users:
             # Check if user has completed onboarding
@@ -101,7 +103,8 @@ def send_hourly_checkin(app, agent_network):
             
             if should_send:
                 # Generate the check-in message
-                checkin_message = agent_network.send_hourly_checkin(user_id)
+                # Run the async method in a new event loop
+                checkin_message = asyncio.run(agent_team.invoke(user_id, "", request_type="checkin"))
                 
                 # Send the message
                 app.client.chat_postMessage(
@@ -113,7 +116,7 @@ def send_hourly_checkin(app, agent_network):
     except Exception as e:
         logger.error(f"Error sending hourly check-in: {e}")
 
-def check_activity(app, agent_network):
+def check_activity(app, agent_team):
     """Check user activity and send support messages if needed"""
     logger.info("Checking user activity")
     
@@ -123,7 +126,8 @@ def check_activity(app, agent_network):
         
         for user_id in users:
             # Check user activity
-            activity_message = agent_network.check_activity(user_id)
+            # Run the async method in a new event loop
+            activity_message = asyncio.run(agent_team.invoke(user_id, "", request_type="activity_check"))
             
             # If activity has decreased, send a support message
             if activity_message:

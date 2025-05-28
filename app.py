@@ -2,12 +2,13 @@
 import os
 import logging
 import time
+import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
-from slack_bolt import App
-from slack_bolt.adapter.socket_mode import SocketModeHandler
+from slack_bolt.async_app import AsyncApp
+from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 
-from src.agents.agent_network import create_agent_network
+from src.agents.daily_slack_team import create_daily_slack_team
 from src.utils.scheduler import setup_scheduler
 from src.utils.initializer import Initializer
 from src.utils.onboarding import OnboardingManager
@@ -36,16 +37,16 @@ initializer = Initializer()
 components = initializer.initialize_all()
 
 # Initialize Slack app
-app = App(
+app = AsyncApp(
     token=os.environ.get("SLACK_BOT_TOKEN"),
     signing_secret=os.environ.get("SLACK_SIGNING_SECRET")
 )
 
-# Initialize agent network
-agent_network = create_agent_network()
+# Initialize agent team
+agent_team = create_daily_slack_team()
 
-# Make components available to the agent network
-agent_network.set_components(components)
+# Make components available to the agent team
+agent_team.set_components(components)
 
 # User manager for tracking user data
 user_manager = components['user_manager']
@@ -57,7 +58,7 @@ activity_monitor = components['activity_monitor']
 onboarding_manager = OnboardingManager(user_manager)
 
 @app.event("app_mention")
-def handle_app_mention(event, say):
+async def handle_app_mention(event, say):
     """Handle when the bot is mentioned in a channel"""
     user_id = event["user"]
     text = event["text"]
@@ -83,12 +84,12 @@ def handle_app_mention(event, say):
         )
         return
     
-    # Process the mention through the agent network
-    response = agent_network.process_mention(user_id, text)
+    # Process the mention through the agent team
+    response = await agent_team.invoke(user_id, text, request_type="mention")
     say(response)
 
 @app.event("message")
-def handle_direct_message(event, say):
+async def handle_direct_message(event, say):
     """Handle direct messages to the bot"""
     if event.get("channel_type") == "im":
         user_id = event["user"]
@@ -120,12 +121,12 @@ def handle_direct_message(event, say):
             say(welcome_message)
             return
         
-        # Process the direct message through the agent network
-        response = agent_network.process_direct_message(user_id, text)
+        # Process the direct message through the agent team
+        response = await agent_team.invoke(user_id, text, request_type="direct_message")
         say(response)
 
 @app.action("plan_day")
-def handle_plan_day(ack, body, say):
+async def handle_plan_day(ack, body, say):
     """Handle the Plan My Day button click"""
     ack()
     user_id = body["user"]["id"]
@@ -136,12 +137,12 @@ def handle_plan_day(ack, body, say):
     if user_manager:
         user_manager.log_interaction(user_id, "plan_day_button")
     
-    # Get the daily planner agent to create a plan
-    response = agent_network.daily_planner.process_request(user_id, "Help me plan my day")
+    # Use the agent team to create a plan
+    response = await agent_team.invoke(user_id, "Help me plan my day", request_type="direct_message")
     say(response)
 
 @app.action("show_tasks")
-def handle_show_tasks(ack, body, say):
+async def handle_show_tasks(ack, body, say):
     """Handle the Show All Tasks button click"""
     ack()
     user_id = body["user"]["id"]
@@ -152,24 +153,24 @@ def handle_show_tasks(ack, body, say):
     if user_manager:
         user_manager.log_interaction(user_id, "show_tasks_button")
     
-    # Get the project analyst agent to show tasks
-    tasks = agent_network.project_analyst.get_pending_tasks(user_id)
+    # Use the agent team to get tasks
+    tasks = agent_team.get_pending_tasks(user_id)
     
     if tasks:
         response = "Here are all your pending tasks:\n\n"
         for task in tasks:
-            response += f"• *{task['title']}*\n"
-            if 'priority' in task:
-                response += f"  Priority: {task['priority']}\n"
-            if 'source' in task:
-                response += f"  Source: {task['source']}\n"
+            response += f"• *{task.title}*\n"
+            if task.priority:
+                response += f"  Priority: {task.priority}\n"
+            if task.description:
+                response += f"  Description: {task.description}\n"
             response += "\n"
     else:
         response = "You don't have any pending tasks at the moment."
     
     say(response)
 
-def main():
+async def main():
     """Main function to start the bot"""
     logger.info("Starting Daily Slack Bot...")
     
@@ -178,18 +179,18 @@ def main():
     logger.info(f"Component status: {status}")
     
     # Set up scheduled tasks
-    setup_scheduler(app, agent_network)
+    setup_scheduler(app, agent_team)
     
     # Start the Socket Mode handler
-    handler = SocketModeHandler(app, os.environ.get("SLACK_APP_TOKEN"))
+    handler = AsyncSocketModeHandler(app, os.environ.get("SLACK_APP_TOKEN"))
     
     try:
         logger.info("Starting the Slack bot")
-        handler.start()
+        await handler.start_async()
     except KeyboardInterrupt:
         logger.info("Shutting down the Slack bot")
     except Exception as e:
         logger.error(f"Error running the Slack bot: {e}")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

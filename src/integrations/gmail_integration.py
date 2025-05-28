@@ -1,11 +1,9 @@
 import os
 import logging
-import base64
-from email.mime.text import MIMEText
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-from googleapiclient.discovery import build
+from datetime import datetime, timedelta
+import json
+import random
+import uuid
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -13,276 +11,235 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Define the scopes
-SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
-
 class GmailIntegration:
     """
-    Handles integration with the Gmail API.
+    Handles integration with the Gmail API (mocked version).
     Provides methods for sending emails, reading emails, and managing drafts.
     """
     
     def __init__(self):
-        """Initialize the Gmail integration"""
-        self.credentials_file = os.environ.get("GOOGLE_CREDENTIALS_FILE")
-        self.service = self._get_gmail_service()
+        """Initialize the Gmail integration with mock data"""
+        self.user_manager = None  # Will be set by the initializer
+        logger.info("Initializing Gmail integration with mock data")
+        
+        # Create mock data
+        self.mock_emails = self._generate_mock_emails()
+        self.mock_drafts = self._generate_mock_drafts()
     
-    def _get_gmail_service(self):
-        """Get an authorized Gmail API service instance"""
-        creds = None
-        
-        # Check if token.json exists
-        token_path = 'gmail_token.json'
-        if os.path.exists(token_path):
-            creds = Credentials.from_authorized_user_info(token_path, SCOPES)
-        
-        # If credentials don't exist or are invalid, get new ones
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    self.credentials_file, SCOPES)
-                creds = flow.run_local_server(port=0)
-            
-            # Save the credentials for the next run
-            with open(token_path, 'w') as token:
-                token.write(creds.to_json())
-        
-        # Build the service
-        try:
-            service = build('gmail', 'v1', credentials=creds)
-            return service
-        except Exception as e:
-            logger.error(f"Error building Gmail service: {e}")
-            return None
+    def _generate_mock_emails(self):
+        """Generate mock email data"""
+        return [
+            {
+                "id": f"email_{i}",
+                "threadId": f"thread_{i//3}",  # Group emails into threads
+                "from": f"user{i%5}@example.com",
+                "to": "me@example.com",
+                "subject": f"Mock Email {i}",
+                "body": f"This is the body of mock email {i}",
+                "date": (datetime.now() - timedelta(days=i%7, hours=i%24)).isoformat(),
+                "read": random.choice([True, False]),
+                "labels": random.sample(["INBOX", "IMPORTANT", "CATEGORY_PERSONAL", "CATEGORY_WORK"], k=random.randint(1, 3))
+            } for i in range(1, 21)  # Generate 20 mock emails
+        ]
+    
+    def _generate_mock_drafts(self):
+        """Generate mock draft data"""
+        return [
+            {
+                "id": f"draft_{i}",
+                "to": f"recipient{i}@example.com",
+                "subject": f"Draft Email {i}",
+                "body": f"This is the body of draft email {i}",
+                "date": (datetime.now() - timedelta(days=i%5)).isoformat()
+            } for i in range(1, 6)  # Generate 5 mock drafts
+        ]
     
     def send_email(self, to, subject, body, cc=None, bcc=None):
-        """Send an email"""
-        if not self.service:
-            logger.error("Gmail service not initialized")
-            return None
-        
+        """Send an email (mocked)"""
         try:
-            # Create the email message
-            message = MIMEText(body)
-            message['to'] = to
-            message['subject'] = subject
+            # Create a new mock email
+            new_email_id = f"email_{len(self.mock_emails) + 1}"
+            thread_id = f"thread_{random.randint(1, 10)}"
+            
+            new_email = {
+                "id": new_email_id,
+                "threadId": thread_id,
+                "from": "me@example.com",
+                "to": to,
+                "subject": subject,
+                "body": body,
+                "date": datetime.now().isoformat(),
+                "read": True,
+                "labels": ["SENT"]
+            }
             
             if cc:
-                message['cc'] = cc
+                new_email["cc"] = cc
             if bcc:
-                message['bcc'] = bcc
+                new_email["bcc"] = bcc
+                
+            # Add to mock emails
+            self.mock_emails.append(new_email)
             
-            # Encode the message
-            raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
-            
-            # Send the message
-            sent_message = self.service.users().messages().send(
-                userId='me',
-                body={'raw': raw_message}
-            ).execute()
+            logger.info(f"Mock email sent to {to} with subject '{subject}'")
             
             return {
                 'success': True,
-                'message_id': sent_message['id']
+                'message_id': new_email_id
             }
             
         except Exception as e:
-            logger.error(f"Error sending email: {e}")
+            logger.error(f"Error sending mock email: {e}")
             return {
                 'success': False,
                 'error': str(e)
             }
     
     def create_draft(self, to, subject, body, cc=None, bcc=None):
-        """Create a draft email"""
-        if not self.service:
-            logger.error("Gmail service not initialized")
-            return None
-        
+        """Create a draft email (mocked)"""
         try:
-            # Create the email message
-            message = MIMEText(body)
-            message['to'] = to
-            message['subject'] = subject
+            # Create a new mock draft
+            new_draft_id = f"draft_{len(self.mock_drafts) + 1}"
+            
+            new_draft = {
+                "id": new_draft_id,
+                "to": to,
+                "subject": subject,
+                "body": body,
+                "date": datetime.now().isoformat()
+            }
             
             if cc:
-                message['cc'] = cc
+                new_draft["cc"] = cc
             if bcc:
-                message['bcc'] = bcc
+                new_draft["bcc"] = bcc
+                
+            # Add to mock drafts
+            self.mock_drafts.append(new_draft)
             
-            # Encode the message
-            raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
-            
-            # Create the draft
-            draft = self.service.users().drafts().create(
-                userId='me',
-                body={
-                    'message': {
-                        'raw': raw_message
-                    }
-                }
-            ).execute()
+            logger.info(f"Mock draft created to {to} with subject '{subject}'")
             
             return {
                 'success': True,
-                'draft_id': draft['id']
+                'draft_id': new_draft_id
             }
             
         except Exception as e:
-            logger.error(f"Error creating draft: {e}")
+            logger.error(f"Error creating mock draft: {e}")
             return {
                 'success': False,
                 'error': str(e)
             }
     
     def get_unread_emails(self, max_results=10):
-        """Get unread emails from the inbox"""
-        if not self.service:
-            logger.error("Gmail service not initialized")
-            return []
-        
+        """Get unread emails from the inbox (mocked)"""
         try:
-            # Search for unread emails in the inbox
-            results = self.service.users().messages().list(
-                userId='me',
-                labelIds=['INBOX', 'UNREAD'],
-                maxResults=max_results
-            ).execute()
+            # Filter unread emails from mock data
+            unread_emails = [email for email in self.mock_emails 
+                            if not email.get('read') and 'INBOX' in email.get('labels', [])]
             
-            messages = results.get('messages', [])
+            # Sort by date (newest first) and limit results
+            unread_emails.sort(key=lambda x: x.get('date', ''), reverse=True)
+            unread_emails = unread_emails[:max_results]
             
-            # Get the details of each message
-            unread_emails = []
-            for message in messages:
-                msg = self.service.users().messages().get(
-                    userId='me',
-                    id=message['id']
-                ).execute()
-                
-                # Extract headers
-                headers = msg['payload']['headers']
-                subject = next((h['value'] for h in headers if h['name'] == 'Subject'), 'No Subject')
-                sender = next((h['value'] for h in headers if h['name'] == 'From'), 'Unknown Sender')
-                date = next((h['value'] for h in headers if h['name'] == 'Date'), 'Unknown Date')
-                
-                # Extract snippet
-                snippet = msg.get('snippet', '')
-                
-                unread_emails.append({
-                    'id': msg['id'],
-                    'subject': subject,
-                    'sender': sender,
-                    'date': date,
-                    'snippet': snippet
+            # Format the response to match the expected structure
+            result = []
+            for email in unread_emails:
+                result.append({
+                    'id': email.get('id'),
+                    'subject': email.get('subject', 'No Subject'),
+                    'sender': email.get('from', 'Unknown Sender'),
+                    'date': email.get('date', ''),
+                    'snippet': email.get('body', '')[:100] + '...' if len(email.get('body', '')) > 100 else email.get('body', '')
                 })
             
-            return unread_emails
+            logger.info(f"Retrieved {len(result)} mock unread emails")
+            return result
             
         except Exception as e:
-            logger.error(f"Error getting unread emails: {e}")
+            logger.error(f"Error getting mock unread emails: {e}")
             return []
     
     def get_email_content(self, message_id):
-        """Get the content of a specific email"""
-        if not self.service:
-            logger.error("Gmail service not initialized")
-            return None
-        
+        """Get the content of a specific email (mocked)"""
         try:
-            # Get the message
-            message = self.service.users().messages().get(
-                userId='me',
-                id=message_id,
-                format='full'
-            ).execute()
+            # Find the email in our mock data
+            email = next((e for e in self.mock_emails if e.get('id') == message_id), None)
             
-            # Extract headers
-            headers = message['payload']['headers']
-            subject = next((h['value'] for h in headers if h['name'] == 'Subject'), 'No Subject')
-            sender = next((h['value'] for h in headers if h['name'] == 'From'), 'Unknown Sender')
-            to = next((h['value'] for h in headers if h['name'] == 'To'), 'Unknown Recipient')
-            date = next((h['value'] for h in headers if h['name'] == 'Date'), 'Unknown Date')
+            if not email:
+                logger.error(f"Mock email with ID {message_id} not found")
+                return None
             
-            # Extract body (simplified, doesn't handle attachments or complex MIME types)
-            body = ''
-            if 'parts' in message['payload']:
-                for part in message['payload']['parts']:
-                    if part['mimeType'] == 'text/plain':
-                        body = base64.urlsafe_b64decode(part['body']['data']).decode()
-                        break
-            elif 'body' in message['payload'] and 'data' in message['payload']['body']:
-                body = base64.urlsafe_b64decode(message['payload']['body']['data']).decode()
+            # Mark as read
+            email['read'] = True
             
-            return {
-                'id': message['id'],
-                'subject': subject,
-                'sender': sender,
-                'to': to,
-                'date': date,
-                'body': body
+            # Format the response
+            result = {
+                'id': email.get('id'),
+                'subject': email.get('subject', 'No Subject'),
+                'sender': email.get('from', 'Unknown Sender'),
+                'to': email.get('to', 'Unknown Recipient'),
+                'date': email.get('date', 'Unknown Date'),
+                'body': email.get('body', '')
             }
             
+            logger.info(f"Retrieved mock email content for ID {message_id}")
+            return result
+            
         except Exception as e:
-            logger.error(f"Error getting email content: {e}")
+            logger.error(f"Error getting mock email content: {e}")
             return None
     
     def reply_to_email(self, message_id, body):
-        """Reply to an email"""
-        if not self.service:
-            logger.error("Gmail service not initialized")
-            return None
-        
+        """Reply to an email (mocked)"""
         try:
-            # Get the original message to extract headers
-            original = self.service.users().messages().get(
-                userId='me',
-                id=message_id,
-                format='metadata',
-                metadataHeaders=['Subject', 'From', 'To', 'Message-ID', 'References', 'In-Reply-To']
-            ).execute()
+            # Find the original email in our mock data
+            original_email = next((e for e in self.mock_emails if e.get('id') == message_id), None)
             
-            # Extract headers
-            headers = original['payload']['headers']
-            subject = next((h['value'] for h in headers if h['name'] == 'Subject'), 'No Subject')
-            sender = next((h['value'] for h in headers if h['name'] == 'From'), 'Unknown Sender')
-            message_id_header = next((h['value'] for h in headers if h['name'] == 'Message-ID'), '')
-            references = next((h['value'] for h in headers if h['name'] == 'References'), '')
+            if not original_email:
+                logger.error(f"Mock email with ID {message_id} not found")
+                return {
+                    'success': False,
+                    'error': f"Email with ID {message_id} not found"
+                }
             
-            # Prepare reply headers
+            # Get original email details
+            sender = original_email.get('from', 'Unknown Sender')
+            subject = original_email.get('subject', 'No Subject')
+            thread_id = original_email.get('threadId', f"thread_{random.randint(1, 10)}")
+            
+            # Prepare reply subject
             if not subject.startswith('Re:'):
                 subject = f"Re: {subject}"
             
-            # Create the reply message
-            message = MIMEText(body)
-            message['to'] = sender
-            message['subject'] = subject
+            # Create a new mock email as the reply
+            new_email_id = f"email_{len(self.mock_emails) + 1}"
             
-            # Add threading headers
-            if message_id_header:
-                if references:
-                    message['References'] = f"{references} {message_id_header}"
-                else:
-                    message['References'] = message_id_header
-                message['In-Reply-To'] = message_id_header
+            reply_email = {
+                "id": new_email_id,
+                "threadId": thread_id,  # Same thread as original
+                "from": "me@example.com",
+                "to": sender,
+                "subject": subject,
+                "body": body,
+                "date": datetime.now().isoformat(),
+                "read": True,
+                "labels": ["SENT"],
+                "in_reply_to": message_id
+            }
             
-            # Encode the message
-            raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+            # Add to mock emails
+            self.mock_emails.append(reply_email)
             
-            # Send the reply
-            sent_message = self.service.users().messages().send(
-                userId='me',
-                body={'raw': raw_message}
-            ).execute()
+            logger.info(f"Mock reply sent to {sender} with subject '{subject}'")
             
             return {
                 'success': True,
-                'message_id': sent_message['id']
+                'message_id': new_email_id
             }
             
         except Exception as e:
-            logger.error(f"Error replying to email: {e}")
+            logger.error(f"Error sending mock reply: {e}")
             return {
                 'success': False,
                 'error': str(e)

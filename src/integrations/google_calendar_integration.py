@@ -1,10 +1,7 @@
 import os
 import logging
+import random
 from datetime import datetime, timedelta
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-from googleapiclient.discovery import build
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -12,283 +9,375 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Define the scopes
-SCOPES = ['https://www.googleapis.com/auth/calendar']
-
 class GoogleCalendarIntegration:
     """
-    Handles integration with the Google Calendar API.
+    Handles integration with the Google Calendar API (mocked version).
     Provides methods for retrieving, creating, and managing calendar events.
     """
     
     def __init__(self):
-        """Initialize the Google Calendar integration"""
-        self.credentials_file = os.environ.get("GOOGLE_CREDENTIALS_FILE")
-        self.service = self._get_calendar_service()
+        """Initialize the Google Calendar integration with mock data"""
+        self.user_manager = None  # Will be set by the initializer
+        logger.info("Initializing Google Calendar integration with mock data")
+        
+        # Create mock data
+        self.mock_events = self._generate_mock_events()
     
-    def _get_calendar_service(self):
-        """Get an authorized Google Calendar API service instance"""
-        creds = None
+    def _generate_mock_events(self):
+        """Generate mock calendar events"""
+        # Get current date and time
+        now = datetime.now()
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         
-        # Check if token.json exists
-        token_path = 'token.json'
-        if os.path.exists(token_path):
-            creds = Credentials.from_authorized_user_info(token_path, SCOPES)
+        # Common meeting titles
+        meeting_titles = [
+            "Team Standup", 
+            "Project Planning", 
+            "Code Review", 
+            "1:1 with Manager", 
+            "Sprint Planning", 
+            "Retrospective", 
+            "Product Demo", 
+            "Client Meeting", 
+            "Technical Discussion", 
+            "Lunch Break"
+        ]
         
-        # If credentials don't exist or are invalid, get new ones
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    self.credentials_file, SCOPES)
-                creds = flow.run_local_server(port=0)
-            
-            # Save the credentials for the next run
-            with open(token_path, 'w') as token:
-                token.write(creds.to_json())
+        # Common locations
+        locations = [
+            "Conference Room A", 
+            "Conference Room B", 
+            "Zoom Meeting", 
+            "Google Meet", 
+            "Office Kitchen", 
+            "Main Office", 
+            "Client Office", 
+            "Virtual"
+        ]
         
-        # Build the service
-        try:
-            service = build('calendar', 'v3', credentials=creds)
-            return service
-        except Exception as e:
-            logger.error(f"Error building Google Calendar service: {e}")
-            return None
+        # Generate events for the next 14 days
+        events = []
+        for day in range(14):
+            # Skip weekends (5=Saturday, 6=Sunday)
+            current_date = today + timedelta(days=day)
+            if current_date.weekday() >= 5:
+                continue
+                
+            # Generate 3-6 events per day
+            num_events = random.randint(3, 6)
+            for i in range(num_events):
+                # Random start time between 9 AM and 5 PM
+                start_hour = random.randint(9, 16)  # Up to 4 PM to allow for 1-hour meetings
+                start_minute = random.choice([0, 15, 30, 45])
+                
+                # Random duration between 30 and 90 minutes
+                duration = random.choice([30, 45, 60, 90])
+                
+                # Calculate start and end times
+                start_time = current_date.replace(hour=start_hour, minute=start_minute)
+                end_time = start_time + timedelta(minutes=duration)
+                
+                # Create event
+                event_id = f"event_{day}_{i}"
+                event = {
+                    "id": event_id,
+                    "summary": random.choice(meeting_titles),
+                    "location": random.choice(locations),
+                    "description": f"Mock calendar event {event_id}",
+                    "start": {
+                        "dateTime": start_time.isoformat(),
+                        "timeZone": "UTC"
+                    },
+                    "end": {
+                        "dateTime": end_time.isoformat(),
+                        "timeZone": "UTC"
+                    },
+                    "attendees": [
+                        {"email": f"attendee{j}@example.com"} for j in range(random.randint(1, 5))
+                    ],
+                    "created": (now - timedelta(days=random.randint(1, 30))).isoformat()
+                }
+                
+                events.append(event)
+        
+        return events
     
     def get_todays_events(self, calendar_id='primary'):
-        """Get events for today from the calendar"""
-        if not self.service:
-            logger.error("Calendar service not initialized")
-            return []
-        
+        """Get events for today from the calendar (mocked)"""
         try:
-            # Get the start and end of today
-            now = datetime.utcnow()
-            start_of_day = datetime(now.year, now.month, now.day, 0, 0, 0).isoformat() + 'Z'
-            end_of_day = datetime(now.year, now.month, now.day, 23, 59, 59).isoformat() + 'Z'
+            # Get current date
+            now = datetime.now()
+            today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            tomorrow = today + timedelta(days=1)
             
-            # Call the Calendar API
-            events_result = self.service.events().list(
-                calendarId=calendar_id,
-                timeMin=start_of_day,
-                timeMax=end_of_day,
-                singleEvents=True,
-                orderBy='startTime'
-            ).execute()
-            
-            events = events_result.get('items', [])
+            # Filter events for today
+            todays_events = []
+            for event in self.mock_events:
+                start_time_str = event['start'].get('dateTime')
+                if not start_time_str:
+                    continue
+                    
+                # Convert to datetime
+                start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00') if 'Z' in start_time_str else start_time_str)
+                
+                # Check if event is today
+                if today <= start_time < tomorrow:
+                    todays_events.append(event)
             
             # Format the events
             formatted_events = []
-            for event in events:
-                start = event['start'].get('dateTime', event['start'].get('date'))
-                
-                # Convert to datetime object
-                if 'T' in start:  # This is a dateTime, not just a date
-                    start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
-                    start_time = start_dt.strftime('%H:%M')
-                else:
-                    start_time = 'All day'
+            for event in todays_events:
+                start_time_str = event['start'].get('dateTime')
+                start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00') if 'Z' in start_time_str else start_time_str)
                 
                 formatted_events.append({
                     'id': event['id'],
                     'title': event['summary'],
-                    'time': start_time,
+                    'time': start_time.strftime('%H:%M'),
                     'duration': self._calculate_duration(event),
                     'location': event.get('location', 'Not specified'),
                     'attendees': self._format_attendees(event.get('attendees', []))
                 })
             
+            # Sort by start time
+            formatted_events.sort(key=lambda x: x['time'])
+            
+            logger.info(f"Retrieved {len(formatted_events)} mock events for today")
             return formatted_events
             
         except Exception as e:
-            logger.error(f"Error getting today's events: {e}")
+            logger.error(f"Error getting today's mock events: {e}")
             return []
     
     def get_upcoming_events(self, calendar_id='primary', days=7, max_results=10):
-        """Get upcoming events for the next few days"""
-        if not self.service:
-            logger.error("Calendar service not initialized")
-            return []
-        
+        """Get upcoming events for the next few days (mocked)"""
         try:
-            # Get the current time and the end time
-            now = datetime.utcnow().isoformat() + 'Z'
-            end_time = (datetime.utcnow() + timedelta(days=days)).isoformat() + 'Z'
+            # Get current date and time
+            now = datetime.now()
+            end_date = now + timedelta(days=days)
             
-            # Call the Calendar API
-            events_result = self.service.events().list(
-                calendarId=calendar_id,
-                timeMin=now,
-                timeMax=end_time,
-                maxResults=max_results,
-                singleEvents=True,
-                orderBy='startTime'
-            ).execute()
+            # Filter events for the specified period
+            upcoming_events = []
+            for event in self.mock_events:
+                start_time_str = event['start'].get('dateTime')
+                if not start_time_str:
+                    continue
+                    
+                # Convert to datetime
+                start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00') if 'Z' in start_time_str else start_time_str)
+                
+                # Check if event is in the specified period
+                if now <= start_time < end_date:
+                    upcoming_events.append(event)
             
-            events = events_result.get('items', [])
+            # Sort by start time
+            upcoming_events.sort(key=lambda x: x['start'].get('dateTime', ''))
+            
+            # Limit results
+            upcoming_events = upcoming_events[:max_results]
             
             # Format the events
             formatted_events = []
-            for event in events:
-                start = event['start'].get('dateTime', event['start'].get('date'))
-                
-                # Convert to datetime object
-                if 'T' in start:  # This is a dateTime, not just a date
-                    start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
-                    start_date = start_dt.strftime('%Y-%m-%d')
-                    start_time = start_dt.strftime('%H:%M')
-                else:
-                    start_date = start
-                    start_time = 'All day'
+            for event in upcoming_events:
+                start_time_str = event['start'].get('dateTime')
+                start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00') if 'Z' in start_time_str else start_time_str)
                 
                 formatted_events.append({
                     'id': event['id'],
                     'title': event['summary'],
-                    'date': start_date,
-                    'time': start_time,
+                    'date': start_time.strftime('%Y-%m-%d'),
+                    'time': start_time.strftime('%H:%M'),
                     'duration': self._calculate_duration(event),
                     'location': event.get('location', 'Not specified'),
                     'attendees': self._format_attendees(event.get('attendees', []))
                 })
             
+            logger.info(f"Retrieved {len(formatted_events)} mock upcoming events")
             return formatted_events
             
         except Exception as e:
-            logger.error(f"Error getting upcoming events: {e}")
+            logger.error(f"Error getting upcoming mock events: {e}")
             return []
     
     def create_event(self, summary, start_time, end_time, description=None, location=None, attendees=None, calendar_id='primary'):
-        """Create a new calendar event"""
-        if not self.service:
-            logger.error("Calendar service not initialized")
-            return None
-        
+        """Create a new calendar event (mocked)"""
         try:
-            event = {
+            # Generate a unique ID for the event
+            event_id = f"event_{len(self.mock_events) + 1}"
+            
+            # Format attendees if provided
+            formatted_attendees = None
+            if attendees:
+                formatted_attendees = [{'email': attendee} for attendee in attendees]
+            
+            # Create the new event
+            new_event = {
+                'id': event_id,
                 'summary': summary,
-                'location': location,
-                'description': description,
                 'start': {
-                    'dateTime': start_time,
+                    'dateTime': start_time.isoformat(),
                     'timeZone': 'UTC',
                 },
                 'end': {
-                    'dateTime': end_time,
+                    'dateTime': end_time.isoformat(),
                     'timeZone': 'UTC',
-                }
+                },
+                'created': datetime.now().isoformat()
             }
             
-            # Add attendees if provided
-            if attendees:
-                event['attendees'] = [{'email': email} for email in attendees]
+            if description:
+                new_event['description'] = description
             
-            # Call the Calendar API to create the event
-            event = self.service.events().insert(
-                calendarId=calendar_id,
-                body=event,
-                sendUpdates='all'  # Send updates to all attendees
-            ).execute()
+            if location:
+                new_event['location'] = location
+            
+            if formatted_attendees:
+                new_event['attendees'] = formatted_attendees
+            
+            # Add to mock events
+            self.mock_events.append(new_event)
+            
+            logger.info(f"Created mock calendar event '{summary}' with ID {event_id}")
             
             return {
                 'success': True,
-                'event_id': event['id'],
-                'html_link': event['htmlLink']
+                'event_id': event_id
             }
             
         except Exception as e:
-            logger.error(f"Error creating calendar event: {e}")
+            logger.error(f"Error creating mock calendar event: {e}")
             return {
                 'success': False,
                 'error': str(e)
             }
     
     def find_free_time(self, attendees, duration_minutes=60, days_ahead=7, calendar_id='primary'):
-        """Find free time slots for a meeting with multiple attendees"""
-        if not self.service:
-            logger.error("Calendar service not initialized")
-            return []
-        
+        """Find free time slots for a meeting with multiple attendees (mocked)"""
         try:
-            # Calculate time range
-            now = datetime.utcnow()
-            start_time = now.isoformat() + 'Z'
-            end_time = (now + timedelta(days=days_ahead)).isoformat() + 'Z'
+            # Get current date and time
+            now = datetime.now()
+            end_date = now + timedelta(days=days_ahead)
             
-            # Set up the FreeBusy request
-            free_busy_request = {
-                'timeMin': start_time,
-                'timeMax': end_time,
-                'items': [{'id': calendar_id}]  # Start with the primary calendar
-            }
-            
-            # Add attendees' calendars if available
-            for attendee in attendees:
-                free_busy_request['items'].append({'id': attendee})
-            
-            # Call the FreeBusy API
-            free_busy_response = self.service.freebusy().query(body=free_busy_request).execute()
-            
-            # Process the response to find free time slots
-            # This is a simplified implementation
-            # In a real implementation, you would need to analyze the busy times
-            # and find gaps that are at least as long as the requested duration
-            
-            # For now, return some sample time slots
-            free_slots = []
-            
-            # Generate sample time slots for the next few days
-            for day in range(days_ahead):
-                day_date = now + timedelta(days=day)
+            # Get busy times from mock events
+            busy_times = []
+            for event in self.mock_events:
+                start_time_str = event['start'].get('dateTime')
+                end_time_str = event['end'].get('dateTime')
                 
-                # Only consider weekdays
-                if day_date.weekday() < 5:  # Monday to Friday
-                    # Morning slot
-                    morning_start = datetime(day_date.year, day_date.month, day_date.day, 10, 0)
-                    morning_end = morning_start + timedelta(minutes=duration_minutes)
+                if not start_time_str or not end_time_str:
+                    continue
                     
-                    free_slots.append({
-                        'date': morning_start.strftime('%Y-%m-%d'),
-                        'start_time': morning_start.strftime('%H:%M'),
-                        'end_time': morning_end.strftime('%H:%M')
-                    })
-                    
-                    # Afternoon slot
-                    afternoon_start = datetime(day_date.year, day_date.month, day_date.day, 14, 0)
-                    afternoon_end = afternoon_start + timedelta(minutes=duration_minutes)
-                    
-                    free_slots.append({
-                        'date': afternoon_start.strftime('%Y-%m-%d'),
-                        'start_time': afternoon_start.strftime('%H:%M'),
-                        'end_time': afternoon_end.strftime('%H:%M')
-                    })
+                # Convert to datetime
+                start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00') if 'Z' in start_time_str else start_time_str)
+                end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00') if 'Z' in end_time_str else end_time_str)
+                
+                # Check if event is in the specified period
+                if (start_time < end_date and end_time > now):
+                    busy_times.append((start_time, end_time))
             
+            # Sort busy times by start time
+            busy_times.sort(key=lambda x: x[0])
+            
+            # Find free slots
+            free_slots = []
+            current_date = now.replace(hour=9, minute=0, second=0, microsecond=0)  # Start at 9 AM
+            
+            # Loop through each day
+            while current_date < end_date:
+                # Skip weekends
+                if current_date.weekday() >= 5:  # Saturday or Sunday
+                    current_date = current_date + timedelta(days=1)  # Move to next day
+                    current_date = current_date.replace(hour=9, minute=0, second=0, microsecond=0)  # Reset to 9 AM
+                    continue
+                
+                # Define work hours: 9 AM to 5 PM
+                day_start = current_date
+                day_end = current_date.replace(hour=17, minute=0, second=0, microsecond=0)  # 5 PM
+                
+                # Find free slots for this day
+                time_slots = self._find_free_slots_for_day(day_start, day_end, busy_times, duration_minutes)
+                free_slots.extend(time_slots)
+                
+                # Move to next day
+                current_date = current_date + timedelta(days=1)
+                current_date = current_date.replace(hour=9, minute=0, second=0, microsecond=0)  # Reset to 9 AM
+            
+            logger.info(f"Found {len(free_slots)} mock free time slots")
             return free_slots
             
         except Exception as e:
-            logger.error(f"Error finding free time: {e}")
+            logger.error(f"Error finding mock free time: {e}")
             return []
+    
+    def _find_free_slots_for_day(self, day_start, day_end, busy_times, duration_minutes):
+        """Helper method to find free slots for a specific day"""
+        free_slots = []
+        current_time = day_start
+        duration_delta = timedelta(minutes=duration_minutes)
+        
+        # Filter busy times for this day
+        day_busy_times = []
+        for start, end in busy_times:
+            # Check if the busy time overlaps with this day
+            if start.date() == day_start.date() or end.date() == day_start.date():
+                # Clip to day boundaries
+                clipped_start = max(start, day_start)
+                clipped_end = min(end, day_end)
+                if clipped_start < clipped_end:  # Only add if there's an actual overlap
+                    day_busy_times.append((clipped_start, clipped_end))
+        
+        # Sort by start time
+        day_busy_times.sort(key=lambda x: x[0])
+        
+        # Find free slots
+        for busy_start, busy_end in day_busy_times:
+            # Check if there's a free slot before this busy time
+            if busy_start - current_time >= duration_delta:
+                # Add free slot
+                slot_end = current_time + duration_delta
+                free_slots.append({
+                    'date': current_time.strftime('%Y-%m-%d'),
+                    'start_time': current_time.strftime('%H:%M'),
+                    'end_time': slot_end.strftime('%H:%M')
+                })
+            
+            # Move current time to after this busy period
+            current_time = busy_end
+        
+        # Check for a final free slot after the last busy time
+        if day_end - current_time >= duration_delta:
+            slot_end = current_time + duration_delta
+            free_slots.append({
+                'date': current_time.strftime('%Y-%m-%d'),
+                'start_time': current_time.strftime('%H:%M'),
+                'end_time': slot_end.strftime('%H:%M')
+            })
+        
+        return free_slots
     
     def _calculate_duration(self, event):
         """Calculate the duration of an event in minutes"""
         try:
-            start = event['start'].get('dateTime')
-            end = event['end'].get('dateTime')
+            start_time_str = event['start'].get('dateTime')
+            end_time_str = event['end'].get('dateTime')
             
-            if start and end:
-                start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
-                end_dt = datetime.fromisoformat(end.replace('Z', '+00:00'))
+            if start_time_str and end_time_str:
+                # Convert to datetime objects
+                start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00') if 'Z' in start_time_str else start_time_str)
+                end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00') if 'Z' in end_time_str else end_time_str)
                 
-                duration = (end_dt - start_dt).total_seconds() / 60
+                # Calculate duration in minutes
+                duration = (end_time - start_time).total_seconds() / 60
                 return int(duration)
             
             return 0  # For all-day events or events without clear times
             
         except Exception as e:
-            logger.warning(f"Error calculating event duration: {e}")
+            logger.warning(f"Error calculating mock event duration: {e}")
             return 60  # Default to 60 minutes
     
     def _format_attendees(self, attendees):
         """Format the attendees list"""
-        return [attendee.get('email') for attendee in attendees]
+        if not attendees:
+            return []
+        return [attendee.get('email') for attendee in attendees if attendee.get('email')]

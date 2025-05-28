@@ -6,8 +6,9 @@ This script allows you to test the bot's functionality locally without connectin
 
 import os
 import logging
+import asyncio
 from dotenv import load_dotenv
-from src.agents.agent_network import create_agent_network
+from src.agents.daily_slack_team import create_daily_slack_team
 from src.utils.initializer import Initializer
 
 # Configure logging
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-def main():
+async def main():
     """Main function to test the bot"""
     logger.info("Starting Daily Slack Bot test...")
     
@@ -28,21 +29,21 @@ def main():
     initializer = Initializer()
     components = initializer.initialize_all()
     
-    # Initialize agent network
-    agent_network = create_agent_network()
+    # Initialize agent team
+    agent_team = create_daily_slack_team()
     
-    # Make components available to the agent network
-    agent_network.set_components(components)
+    # Make components available to the agent team
+    agent_team.set_components(components)
     
     # Test welcome message
     user_id = "test_user"
-    welcome_message = agent_network.send_welcome_message(user_id)
+    welcome_message = await agent_team.invoke(user_id, "", request_type="welcome")
     print("\n=== WELCOME MESSAGE ===")
     print(welcome_message)
     print("=======================\n")
     
     # Test hourly check-in
-    checkin_message = agent_network.send_hourly_checkin(user_id)
+    checkin_message = await agent_team.invoke(user_id, "", request_type="checkin")
     print("\n=== HOURLY CHECK-IN ===")
     print(checkin_message)
     print("=======================\n")
@@ -57,11 +58,11 @@ def main():
     
     for message in test_messages:
         print(f"\n=== PROCESSING MESSAGE: '{message}' ===")
-        response = agent_network.process_direct_message(user_id, message)
+        response = await agent_team.invoke(user_id, message, request_type="direct_message")
         print(response)
         print("===============================\n")
     
     logger.info("Test completed successfully")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

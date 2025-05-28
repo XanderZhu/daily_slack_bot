@@ -83,3 +83,53 @@ All user data, preferences, and credentials are securely stored in Supabase:
 - **Interactions Table**: Logs user interactions with the bot
 
 This provides a more secure and scalable solution compared to local file storage, allowing the bot to be deployed across multiple instances while maintaining consistent user data.
+
+## Supabase Setup
+
+1. Create a Supabase account at [supabase.com](https://supabase.com)
+2. Create a new project and note your project URL and API key
+3. Set up the following tables in your Supabase database:
+
+### Users Table
+```sql
+create table public.users (
+  id uuid default uuid_generate_v4() primary key,
+  slack_id text unique not null,
+  name text,
+  email text,
+  github_username text,
+  preferences jsonb default '{}'::jsonb,
+  onboarding_started boolean default false,
+  onboarding_completed boolean default false,
+  onboarding_step text default 'welcome',
+  github_setup text,
+  google_setup text,
+  youtrack_setup text,
+  created_at timestamp with time zone default now(),
+  updated_at timestamp with time zone
+);
+```
+
+### Credentials Table
+```sql
+create table public.credentials (
+  id uuid default uuid_generate_v4() primary key,
+  slack_id text references public.users(slack_id),
+  credential_type text not null,
+  data jsonb not null,
+  created_at timestamp with time zone default now(),
+  updated_at timestamp with time zone,
+  unique(slack_id, credential_type)
+);
+```
+
+### Interactions Table
+```sql
+create table public.interactions (
+  id uuid default uuid_generate_v4() primary key,
+  slack_id text references public.users(slack_id),
+  interaction_type text not null,
+  details jsonb,
+  created_at timestamp with time zone default now()
+);
+```
