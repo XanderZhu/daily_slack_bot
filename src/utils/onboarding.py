@@ -12,6 +12,22 @@ class OnboardingManager:
     def __init__(self, user_manager):
         """Initialize the onboarding manager"""
         self.user_manager = user_manager
+        self.mock_agenda = {
+            "meetings": [
+                {"time": "10:00 AM", "title": "Team Standup"},
+                {"time": "2:00 PM", "title": "Product Review"},
+            ],
+            "tasks": [
+                "Implement new feature X",
+                "Review pull requests",
+                "Update documentation"
+            ]
+        }
+        self.mock_issues = [
+            "spending too much time in meetings",
+            "context switching between tasks",
+            "difficulty prioritizing work"
+        ]
     
     def check_onboarding_status(self, user_id):
         """Check if a user has completed onboarding"""
@@ -23,36 +39,65 @@ class OnboardingManager:
         # Mark that onboarding has started
         self.user_manager.update_user(user_id, {
             "onboarding_started": True,
-            "onboarding_step": "welcome",
+            "onboarding_step": "demo_welcome",
             "onboarding_timestamp": datetime.now().isoformat()
         })
         
-        # Return the welcome message
-        return self._get_welcome_message()
+        # Return the welcome message for demo
+        return (
+            "👋 Welcome to the Daily Slack Bot Demo!\n\n"
+            "I'm here to help you stay productive and motivated.\n"
+            "For this demo, you can either:\n"
+            "• Enter your credentials for full setup\n"
+            "• Type 'skip' to see a demo with mock data\n\n"
+            "What would you like to do?"
+        )
     
     def process_onboarding_step(self, user_id, message):
         """Process a user's response during onboarding"""
         user_data = self.user_manager.get_user(user_id)
-        current_step = user_data.get("onboarding_step", "welcome")
+        current_step = user_data.get("onboarding_step", "demo_welcome")
         
         logger.info(f"Processing onboarding step for user {user_id}: current_step={current_step}, message='{message}'")
-        logger.info(f"User data: {user_data}")
         
-        if current_step == "welcome":
-            # Check if the message is a valid response to continue
-            if message.lower() in ["continue", "yes", "ok", "start"]:
-                # Move to GitHub credentials step
-                logger.info(f"User {user_id} confirmed to continue. Moving to GitHub step.")
-                update_result = self.user_manager.update_user(user_id, {"onboarding_step": "github"})
-                logger.info(f"Update result: {update_result}")
-                return self._get_github_prompt()
+        if current_step == "demo_welcome":
+            if message.lower() == "skip":
+                # Move to demo mode
+                self.user_manager.update_user(user_id, {
+                    "onboarding_step": "demo_agenda",
+                    "demo_mode": True
+                })
+                
+                # Show mock agenda
+                agenda_msg = "Hi! Today on your agenda:\n\n"
+                for meeting in self.mock_agenda["meetings"]:
+                    agenda_msg += f"📅 {meeting['time']}: {meeting['title']}\n"
+                agenda_msg += "\nTasks:\n"
+                for task in self.mock_agenda["tasks"]:
+                    agenda_msg += f"📋 {task}\n"
+                agenda_msg += "\nLet's make a plan for today! How would you like to organize these tasks?"
+                
+                return agenda_msg
             else:
-                # If the user didn't type a valid continue command, repeat the welcome message
-                logger.info(f"User {user_id} sent invalid continue response: '{message}'")
-                return "Please type 'continue' when you're ready to proceed with the setup."
+                # Continue with regular onboarding
+                self.user_manager.update_user(user_id, {"onboarding_step": "github"})
+                return self._get_github_prompt()
+        
+        elif current_step == "demo_agenda":
+            # After user responds to agenda planning, simulate noticing an issue
+            self.user_manager.update_user(user_id, {
+                "onboarding_step": "completed",
+                "onboarding_completed": True
+            })
             
+            # Pick a random mock issue
+            import random
+            issue = random.choice(self.mock_issues)
+            
+            return f"I notice you've been struggling with {issue}. Would you like some suggestions on how to handle this?"
+        
         elif current_step == "github":
-            # Save GitHub token
+            # Original GitHub handling code
             if self._validate_github_token(message):
                 self._save_github_credentials(user_id, message)
                 self.user_manager.update_user(user_id, {"onboarding_step": "google"})
