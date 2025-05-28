@@ -34,14 +34,22 @@ def slack_events():
     """
     # Get the request data
     data = request.get_json()
+    if not data:
+        logger.error("No JSON data received")
+        return jsonify({"error": "No data received"}), 400
+        
     logger.info(f"Received Slack event: {data.get('type', 'unknown')}")
     
     # Handle URL verification challenge
-    if data and data.get("type") == "url_verification":
-        logger.info("Handling URL verification challenge")
-        return jsonify({
-            "challenge": data.get("challenge")
-        })
+    if data.get("type") == "url_verification":
+        challenge = data.get("challenge")
+        logger.info(f"Handling URL verification challenge: {challenge}")
+        
+        # Return EXACTLY what Slack expects for verification
+        # This must be the raw challenge value with the correct content type
+        response = {"challenge": challenge}
+        logger.info(f"Responding with challenge: {response}")
+        return response
     
     # Pass all other events to the Slack app
     return handler.handle(request)
