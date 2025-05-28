@@ -131,9 +131,15 @@ async def handle_app_mention(event, say):
 async def handle_direct_message(event, say):
     """Handle direct messages to the bot"""
     if event.get("channel_type") == "im":
-        user_id = event["user"]
-        text = event["text"]
-        channel_id = event["channel"]
+        # Safely get user ID with a default value
+        user_id = event.get("user")
+        if not user_id:
+            logger.error(f"No user ID found in event: {event}")
+            await say("I'm sorry, but I couldn't process your message. Please try again.")
+            return
+            
+        text = event.get("text", "")
+        channel_id = event.get("channel")
         
         # Ignore messages from bots
         if event.get("bot_id"):
